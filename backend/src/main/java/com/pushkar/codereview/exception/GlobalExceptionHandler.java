@@ -30,6 +30,30 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceNotFoundException(ResourceNotFoundException ex) {
+        Map<String, Object> response = Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", HttpStatus.NOT_FOUND.value(),
+                "error", "Resource Not Found",
+                "message", ex.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ResponseEntity<Map<String, Object>> handleDuplicateResourceException(DuplicateResourceException ex) {
+        Map<String, Object> response = Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", HttpStatus.CONFLICT.value(),
+                "error", "Duplicate Resource Error",
+                "message", ex.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneralException(Exception ex) {
         Map<String, Object> response = Map.of(
