@@ -65,6 +65,13 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!-- Auth0 Java JWT: Lightweight RS256 JWT creation and verification -->
+        <dependency>
+            <groupId>com.auth0</groupId>
+            <artifactId>java-jwt</artifactId>
+            <version>4.4.0</version>
+        </dependency>
+
         <!-- Spring Boot Test: Testing starter with JUnit 5, AssertJ, and Mockito -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
