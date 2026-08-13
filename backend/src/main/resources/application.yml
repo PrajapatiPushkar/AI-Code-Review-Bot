@@ -37,3 +37,11 @@ management:
   endpoint:
     health:
       show-details: always
+
+github:
+  app-id: ${GITHUB_APP_ID:}
+  app-name: ${GITHUB_APP_NAME:ai-code-review-bot}
+  private-key: ${GITHUB_PRIVATE_KEY:}
+  webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+
