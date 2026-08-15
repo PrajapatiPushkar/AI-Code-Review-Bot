@@ -176,7 +176,7 @@ class CodeReviewControllerTest {
         private long receivedPullRequestNumber;
 
         public StubCodeReviewService() {
-            super(null, null, null);
+            super(null, null, null, null);
         }
 
         public void setResult(CodeReviewExecutionResult result) {

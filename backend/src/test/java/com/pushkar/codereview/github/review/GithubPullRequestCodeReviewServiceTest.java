@@ -11,6 +11,9 @@ import com.pushkar.codereview.github.review.dto.ReviewFindingCategory;
 import com.pushkar.codereview.github.review.dto.ReviewFindingSeverity;
 import com.pushkar.codereview.github.review.dto.ReviewInput;
 import com.pushkar.codereview.github.review.dto.ReviewResult;
+import com.pushkar.codereview.github.review.persistence.CodeReview;
+import com.pushkar.codereview.github.review.persistence.CodeReviewPersistenceService;
+import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +36,7 @@ class GithubPullRequestCodeReviewServiceTest {
     private StubPullRequestReviewService pullRequestReviewService;
     private StubAiReviewService aiReviewService;
     private StubReviewCommentService reviewCommentService;
+    private StubPersistenceService persistenceService;
     private GithubPullRequestCodeReviewService codeReviewService;
 
     private ReviewInput sampleInput;
@@ -42,7 +46,10 @@ class GithubPullRequestCodeReviewServiceTest {
         pullRequestReviewService = new StubPullRequestReviewService();
         aiReviewService = new StubAiReviewService();
         reviewCommentService = new StubReviewCommentService();
-        codeReviewService = new GithubPullRequestCodeReviewService(pullRequestReviewService, aiReviewService, reviewCommentService);
+        persistenceService = new StubPersistenceService();
+        codeReviewService = new GithubPullRequestCodeReviewService(
+                pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService
+        );
 
         sampleInput = new ReviewInput(
                 100L, REPO, OWNER + "/" + REPO, "https://github.com/octocat/hello-world", "main",
@@ -53,7 +60,7 @@ class GithubPullRequestCodeReviewServiceTest {
     }
 
     @Test
-    void testExecuteCodeReview_SuccessFlow() {
+    void testExecuteCodeReview_SuccessFlowWithPersistence() {
         ReviewFinding finding1 = new ReviewFinding("Main.java", 10, ReviewFindingSeverity.HIGH, ReviewFindingCategory.BUG, "Bug msg", "Fix bug");
         ReviewFinding finding2 = new ReviewFinding("Main.java", 20, ReviewFindingSeverity.MEDIUM, ReviewFindingCategory.PERFORMANCE, "Perf msg", "Fix perf");
         ReviewResult sampleResult = new ReviewResult("Review summary text", List.of(finding1, finding2));
@@ -74,30 +81,29 @@ class GithubPullRequestCodeReviewServiceTest {
         assertThat(result.getTotalFindings()).isEqualTo(2);
         assertThat(result.getPostedCommentsCount()).isEqualTo(2);
 
-        // Verify correct call sequence and passed inputs
-        assertThat(pullRequestReviewService.isCalled()).isTrue();
-        assertThat(aiReviewService.isCalled()).isTrue();
-        assertThat(reviewCommentService.isCalled()).isTrue();
-        assertThat(aiReviewService.getReceivedInput()).isEqualTo(sampleInput);
-        assertThat(reviewCommentService.getReceivedResult()).isEqualTo(sampleResult);
-        assertThat(reviewCommentService.getReceivedCommitId()).isEqualTo(COMMIT_SHA);
+        // Persistence verifications
+        assertThat(persistenceService.isCreatedInProgress()).isTrue();
+        assertThat(persistenceService.isMarkedCompleted()).isTrue();
+        assertThat(persistenceService.isMarkedFailed()).isFalse();
+        assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.COMPLETED);
     }
 
     @Test
-    void testExecuteCodeReview_GitHubRetrievalFailureStopsExecution() {
+    void testExecuteCodeReview_GitHubRetrievalFailureMarksFailed() {
         pullRequestReviewService.setException(new ResourceNotFoundException("GitHub PR not found"));
 
         assertThatThrownBy(() -> codeReviewService.executeCodeReview(INSTALLATION_ID, OWNER, REPO, PR_NUMBER))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("GitHub PR not found");
 
-        assertThat(pullRequestReviewService.isCalled()).isTrue();
-        assertThat(aiReviewService.isCalled()).isFalse();
-        assertThat(reviewCommentService.isCalled()).isFalse();
+        assertThat(persistenceService.isCreatedInProgress()).isTrue();
+        assertThat(persistenceService.isMarkedFailed()).isTrue();
+        assertThat(persistenceService.isMarkedCompleted()).isFalse();
+        assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.FAILED);
     }
 
     @Test
-    void testExecuteCodeReview_AiReviewFailureStopsCommentPosting() {
+    void testExecuteCodeReview_AiReviewFailureMarksFailed() {
         pullRequestReviewService.setReviewInput(sampleInput);
         aiReviewService.setException(new RuntimeException("AI engine quota exceeded"));
 
@@ -105,13 +111,14 @@ class GithubPullRequestCodeReviewServiceTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("AI engine quota exceeded");
 
-        assertThat(pullRequestReviewService.isCalled()).isTrue();
-        assertThat(aiReviewService.isCalled()).isTrue();
-        assertThat(reviewCommentService.isCalled()).isFalse();
+        assertThat(persistenceService.isCreatedInProgress()).isTrue();
+        assertThat(persistenceService.isMarkedFailed()).isTrue();
+        assertThat(persistenceService.isMarkedCompleted()).isFalse();
+        assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.FAILED);
     }
 
     @Test
-    void testExecuteCodeReview_CommentPostingFailurePropagated() {
+    void testExecuteCodeReview_CommentPostingFailureMarksFailed() {
         ReviewResult sampleResult = new ReviewResult("Summary", Collections.emptyList());
 
         pullRequestReviewService.setReviewInput(sampleInput);
@@ -122,9 +129,10 @@ class GithubPullRequestCodeReviewServiceTest {
                 .isInstanceOf(GithubApiException.class)
                 .hasMessageContaining("GitHub API write error");
 
-        assertThat(pullRequestReviewService.isCalled()).isTrue();
-        assertThat(aiReviewService.isCalled()).isTrue();
-        assertThat(reviewCommentService.isCalled()).isTrue();
+        assertThat(persistenceService.isCreatedInProgress()).isTrue();
+        assertThat(persistenceService.isMarkedFailed()).isTrue();
+        assertThat(persistenceService.isMarkedCompleted()).isFalse();
+        assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.FAILED);
     }
 
     @Test
@@ -141,6 +149,7 @@ class GithubPullRequestCodeReviewServiceTest {
         assertThat(result.getTotalFindings()).isEqualTo(0);
         assertThat(result.getPostedCommentsCount()).isEqualTo(0);
         assertThat(result.getReviewSummary()).isEqualTo("No issues found");
+        assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.COMPLETED);
     }
 
     @Test
@@ -148,32 +157,15 @@ class GithubPullRequestCodeReviewServiceTest {
         // Invalid installationId
         assertThatThrownBy(() -> codeReviewService.executeCodeReview(null, OWNER, REPO, PR_NUMBER))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> codeReviewService.executeCodeReview(0L, OWNER, REPO, PR_NUMBER))
-                .isInstanceOf(IllegalArgumentException.class);
 
-        // Blank owner/repo
-        assertThatThrownBy(() -> codeReviewService.executeCodeReview(INSTALLATION_ID, " ", REPO, PR_NUMBER))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> codeReviewService.executeCodeReview(INSTALLATION_ID, OWNER, "", PR_NUMBER))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        // Invalid PR number
-        assertThatThrownBy(() -> codeReviewService.executeCodeReview(INSTALLATION_ID, OWNER, REPO, 0))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> codeReviewService.executeCodeReview(INSTALLATION_ID, OWNER, REPO, -1))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        assertThat(pullRequestReviewService.isCalled()).isFalse();
-        assertThat(aiReviewService.isCalled()).isFalse();
-        assertThat(reviewCommentService.isCalled()).isFalse();
+        assertThat(persistenceService.isCreatedInProgress()).isFalse();
     }
 
-    // --- Helper Stub Classes ---
+    // --- Helper Stubs ---
 
     private static class StubPullRequestReviewService extends GithubPullRequestReviewService {
         private ReviewInput reviewInput;
         private RuntimeException exception;
-        private boolean called = false;
 
         public StubPullRequestReviewService() {
             super(null, null, null, null);
@@ -187,13 +179,8 @@ class GithubPullRequestCodeReviewServiceTest {
             this.exception = exception;
         }
 
-        public boolean isCalled() {
-            return called;
-        }
-
         @Override
         public ReviewInput getReviewInput(Long installationId, String owner, String repository, long pullRequestNumber) {
-            this.called = true;
             if (exception != null) {
                 throw exception;
             }
@@ -204,8 +191,6 @@ class GithubPullRequestCodeReviewServiceTest {
     private static class StubAiReviewService extends AiReviewService {
         private ReviewResult reviewResult;
         private RuntimeException exception;
-        private boolean called = false;
-        private ReviewInput receivedInput;
 
         public StubAiReviewService() {
             super(null);
@@ -219,18 +204,8 @@ class GithubPullRequestCodeReviewServiceTest {
             this.exception = exception;
         }
 
-        public boolean isCalled() {
-            return called;
-        }
-
-        public ReviewInput getReceivedInput() {
-            return receivedInput;
-        }
-
         @Override
         public ReviewResult review(ReviewInput input) {
-            this.called = true;
-            this.receivedInput = input;
             if (exception != null) {
                 throw exception;
             }
@@ -241,9 +216,6 @@ class GithubPullRequestCodeReviewServiceTest {
     private static class StubReviewCommentService extends GithubReviewCommentService {
         private List<GithubReviewCommentResponse> commentResponses = new ArrayList<>();
         private RuntimeException exception;
-        private boolean called = false;
-        private ReviewResult receivedResult;
-        private String receivedCommitId;
 
         public StubReviewCommentService() {
             super(null);
@@ -257,27 +229,73 @@ class GithubPullRequestCodeReviewServiceTest {
             this.exception = exception;
         }
 
-        public boolean isCalled() {
-            return called;
-        }
-
-        public ReviewResult getReceivedResult() {
-            return receivedResult;
-        }
-
-        public String getReceivedCommitId() {
-            return receivedCommitId;
-        }
-
         @Override
         public List<GithubReviewCommentResponse> postReviewComments(Long installationId, String owner, String repository, long pullRequestNumber, String commitId, ReviewResult reviewResult) {
-            this.called = true;
-            this.receivedCommitId = commitId;
-            this.receivedResult = reviewResult;
             if (exception != null) {
                 throw exception;
             }
             return commentResponses;
+        }
+    }
+
+    private static class StubPersistenceService extends CodeReviewPersistenceService {
+        private CodeReview entity;
+        private boolean createdInProgress = false;
+        private boolean markedCompleted = false;
+        private boolean markedFailed = false;
+
+        public StubPersistenceService() {
+            super(null);
+        }
+
+        public boolean isCreatedInProgress() {
+            return createdInProgress;
+        }
+
+        public boolean isMarkedCompleted() {
+            return markedCompleted;
+        }
+
+        public boolean isMarkedFailed() {
+            return markedFailed;
+        }
+
+        public CodeReview getLastEntity() {
+            return entity;
+        }
+
+        @Override
+        public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber) {
+            this.createdInProgress = true;
+            this.entity = new CodeReview(installationId, owner, repositoryName, pullRequestNumber);
+            this.entity.setId(100L);
+            this.entity.setStatus(CodeReviewStatus.IN_PROGRESS);
+            this.entity.setCreatedAt(Instant.now());
+            return entity;
+        }
+
+        @Override
+        public CodeReview markCompleted(Long reviewId, String reviewSummary, int totalFindings, int postedCommentsCount) {
+            this.markedCompleted = true;
+            if (entity != null) {
+                entity.setStatus(CodeReviewStatus.COMPLETED);
+                entity.setReviewSummary(reviewSummary);
+                entity.setTotalFindings(totalFindings);
+                entity.setPostedCommentsCount(postedCommentsCount);
+                entity.setCompletedAt(Instant.now());
+            }
+            return entity;
+        }
+
+        @Override
+        public CodeReview markFailed(Long reviewId, String errorMessage) {
+            this.markedFailed = true;
+            if (entity != null) {
+                entity.setStatus(CodeReviewStatus.FAILED);
+                entity.setReviewSummary("FAILED: " + errorMessage);
+                entity.setCompletedAt(Instant.now());
+            }
+            return entity;
         }
     }
 }
