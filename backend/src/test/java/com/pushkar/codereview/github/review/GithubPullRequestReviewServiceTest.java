@@ -9,6 +9,9 @@ import com.pushkar.codereview.github.client.dto.GithubPullRequestFileResponse;
 import com.pushkar.codereview.github.client.dto.GithubPullRequestResponse;
 import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import com.pushkar.codereview.github.review.dto.PullRequestReviewContext;
+import com.pushkar.codereview.github.review.dto.ReviewFileInput;
+import com.pushkar.codereview.github.review.dto.ReviewInput;
+import com.pushkar.codereview.github.review.mapper.ReviewInputMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -25,6 +28,7 @@ class GithubPullRequestReviewServiceTest {
     private StubRepositoryClient repositoryClient;
     private StubPullRequestClient pullRequestClient;
     private StubPullRequestFilesClient filesClient;
+    private ReviewInputMapper reviewInputMapper;
     private GithubPullRequestReviewService reviewService;
 
     private static final Long INSTALLATION_ID = 12345L;
@@ -37,7 +41,8 @@ class GithubPullRequestReviewServiceTest {
         repositoryClient = new StubRepositoryClient();
         pullRequestClient = new StubPullRequestClient();
         filesClient = new StubPullRequestFilesClient();
-        reviewService = new GithubPullRequestReviewService(repositoryClient, pullRequestClient, filesClient);
+        reviewInputMapper = new ReviewInputMapper();
+        reviewService = new GithubPullRequestReviewService(repositoryClient, pullRequestClient, filesClient, reviewInputMapper);
     }
 
     @Test
@@ -74,6 +79,132 @@ class GithubPullRequestReviewServiceTest {
     }
 
     @Test
+    void testGetReviewInput_Success() {
+        Instant now = Instant.now();
+        GithubRepositoryResponse repoResponse = new GithubRepositoryResponse(
+                100L, REPO, OWNER + "/" + REPO, false, "https://github.com/octocat/hello-world", "main"
+        );
+        GithubPullRequestResponse prResponse = new GithubPullRequestResponse(
+                200L, (long) PR_NUMBER, "Test PR", "Description", "open",
+                "https://github.com/octocat/hello-world/pull/42",
+                new GithubPullRequestResponse.UserResponse(OWNER),
+                new GithubPullRequestResponse.GitRefResponse("feature-branch"),
+                new GithubPullRequestResponse.GitRefResponse("main"),
+                now, now
+        );
+        GithubPullRequestFileResponse fileResponse = new GithubPullRequestFileResponse(
+                "sha123", "src/Main.java", "modified", 10, 2, 12, "@@ -1,2 +1,2 @@", null
+        );
+
+        repositoryClient.setResponse(repoResponse);
+        pullRequestClient.setResponse(prResponse);
+        filesClient.setResponse(List.of(fileResponse));
+
+        ReviewInput reviewInput = reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER);
+
+        assertThat(reviewInput).isNotNull();
+        // Repository fields
+        assertThat(reviewInput.getRepositoryId()).isEqualTo(100L);
+        assertThat(reviewInput.getRepositoryName()).isEqualTo(REPO);
+        assertThat(reviewInput.getRepositoryFullName()).isEqualTo(OWNER + "/" + REPO);
+        assertThat(reviewInput.getRepositoryUrl()).isEqualTo("https://github.com/octocat/hello-world");
+        assertThat(reviewInput.getDefaultBranch()).isEqualTo("main");
+
+        // Pull request fields
+        assertThat(reviewInput.getPullRequestId()).isEqualTo(200L);
+        assertThat(reviewInput.getPullRequestNumber()).isEqualTo((long) PR_NUMBER);
+        assertThat(reviewInput.getTitle()).isEqualTo("Test PR");
+        assertThat(reviewInput.getBody()).isEqualTo("Description");
+        assertThat(reviewInput.getState()).isEqualTo("open");
+        assertThat(reviewInput.getPullRequestUrl()).isEqualTo("https://github.com/octocat/hello-world/pull/42");
+        assertThat(reviewInput.getAuthorLogin()).isEqualTo(OWNER);
+        assertThat(reviewInput.getHeadBranch()).isEqualTo("feature-branch");
+        assertThat(reviewInput.getBaseBranch()).isEqualTo("main");
+        assertThat(reviewInput.getCreatedAt()).isEqualTo(now);
+        assertThat(reviewInput.getUpdatedAt()).isEqualTo(now);
+
+        // Changed files fields
+        assertThat(reviewInput.getFiles()).hasSize(1);
+        ReviewFileInput fileInput = reviewInput.getFiles().get(0);
+        assertThat(fileInput.getFilename()).isEqualTo("src/Main.java");
+        assertThat(fileInput.getStatus()).isEqualTo("modified");
+        assertThat(fileInput.getAdditions()).isEqualTo(10);
+        assertThat(fileInput.getDeletions()).isEqualTo(2);
+        assertThat(fileInput.getChanges()).isEqualTo(12);
+        assertThat(fileInput.getPatch()).isEqualTo("@@ -1,2 +1,2 @@");
+        assertThat(fileInput.getPreviousFilename()).isNull();
+    }
+
+    @Test
+    void testGetReviewInput_NullPatchRemainsNull() {
+        GithubRepositoryResponse repoResponse = new GithubRepositoryResponse(1L, REPO, OWNER + "/" + REPO, false, "https://github.com/octocat/hello-world", "main");
+        GithubPullRequestResponse prResponse = new GithubPullRequestResponse(
+                100L, (long) PR_NUMBER, "Test PR", "Description", "open",
+                "https://github.com/octocat/hello-world/pull/42",
+                new GithubPullRequestResponse.UserResponse(OWNER),
+                new GithubPullRequestResponse.GitRefResponse("feature-branch"),
+                new GithubPullRequestResponse.GitRefResponse("main"),
+                Instant.now(), Instant.now()
+        );
+        GithubPullRequestFileResponse fileResponse = new GithubPullRequestFileResponse(
+                "sha_bin", "image.png", "added", 0, 0, 0, null, null
+        );
+
+        repositoryClient.setResponse(repoResponse);
+        pullRequestClient.setResponse(prResponse);
+        filesClient.setResponse(List.of(fileResponse));
+
+        ReviewInput reviewInput = reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER);
+
+        assertThat(reviewInput.getFiles()).hasSize(1);
+        assertThat(reviewInput.getFiles().get(0).getPatch()).isNull();
+    }
+
+    @Test
+    void testGetReviewInput_EmptyChangedFiles() {
+        GithubRepositoryResponse repoResponse = new GithubRepositoryResponse(1L, REPO, OWNER + "/" + REPO, false, "https://github.com/octocat/hello-world", "main");
+        GithubPullRequestResponse prResponse = new GithubPullRequestResponse(
+                100L, (long) PR_NUMBER, "Test PR", "Description", "open",
+                "https://github.com/octocat/hello-world/pull/42",
+                new GithubPullRequestResponse.UserResponse(OWNER),
+                new GithubPullRequestResponse.GitRefResponse("feature-branch"),
+                new GithubPullRequestResponse.GitRefResponse("main"),
+                Instant.now(), Instant.now()
+        );
+
+        repositoryClient.setResponse(repoResponse);
+        pullRequestClient.setResponse(prResponse);
+        filesClient.setResponse(Collections.emptyList());
+
+        ReviewInput reviewInput = reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER);
+
+        assertThat(reviewInput).isNotNull();
+        assertThat(reviewInput.getFiles()).isNotNull().isEmpty();
+    }
+
+    @Test
+    void testGetReviewInput_NullChangedFilesHandledGracefully() {
+        GithubRepositoryResponse repoResponse = new GithubRepositoryResponse(1L, REPO, OWNER + "/" + REPO, false, "https://github.com/octocat/hello-world", "main");
+        GithubPullRequestResponse prResponse = new GithubPullRequestResponse(
+                100L, (long) PR_NUMBER, "Test PR", "Description", "open",
+                "https://github.com/octocat/hello-world/pull/42",
+                new GithubPullRequestResponse.UserResponse(OWNER),
+                new GithubPullRequestResponse.GitRefResponse("feature-branch"),
+                new GithubPullRequestResponse.GitRefResponse("main"),
+                Instant.now(), Instant.now()
+        );
+
+        repositoryClient.setResponse(repoResponse);
+        pullRequestClient.setResponse(prResponse);
+        filesClient.setResponse(null);
+
+        ReviewInput reviewInput = reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER);
+
+        assertThat(reviewInput).isNotNull();
+        assertThat(reviewInput.getFiles()).isNotNull().isEmpty();
+    }
+
+    @Test
     void testGetReviewContext_RepositoryClientFailure() {
         repositoryClient.setException(new ResourceNotFoundException("GitHub repository not found: " + OWNER + "/" + REPO));
 
@@ -84,6 +215,17 @@ class GithubPullRequestReviewServiceTest {
         assertThat(repositoryClient.isCalled()).isTrue();
         assertThat(pullRequestClient.isCalled()).isFalse();
         assertThat(filesClient.isCalled()).isFalse();
+    }
+
+    @Test
+    void testGetReviewInput_RepositoryClientFailure() {
+        repositoryClient.setException(new ResourceNotFoundException("GitHub repository not found: " + OWNER + "/" + REPO));
+
+        assertThatThrownBy(() -> reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("GitHub repository not found");
+
+        assertThat(repositoryClient.isCalled()).isTrue();
     }
 
     @Test
@@ -99,6 +241,17 @@ class GithubPullRequestReviewServiceTest {
         assertThat(repositoryClient.isCalled()).isTrue();
         assertThat(pullRequestClient.isCalled()).isTrue();
         assertThat(filesClient.isCalled()).isFalse();
+    }
+
+    @Test
+    void testGetReviewInput_PullRequestClientFailure() {
+        GithubRepositoryResponse repoResponse = new GithubRepositoryResponse(1L, REPO, OWNER + "/" + REPO, false, "https://github.com/octocat/hello-world", "main");
+        repositoryClient.setResponse(repoResponse);
+        pullRequestClient.setException(new GithubApiException("GitHub pull request not found", 404));
+
+        assertThatThrownBy(() -> reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER))
+                .isInstanceOf(GithubApiException.class)
+                .hasMessageContaining("GitHub pull request not found");
     }
 
     @Test
@@ -124,6 +277,27 @@ class GithubPullRequestReviewServiceTest {
         assertThat(repositoryClient.isCalled()).isTrue();
         assertThat(pullRequestClient.isCalled()).isTrue();
         assertThat(filesClient.isCalled()).isTrue();
+    }
+
+    @Test
+    void testGetReviewInput_ChangedFilesClientFailure() {
+        GithubRepositoryResponse repoResponse = new GithubRepositoryResponse(1L, REPO, OWNER + "/" + REPO, false, "https://github.com/octocat/hello-world", "main");
+        GithubPullRequestResponse prResponse = new GithubPullRequestResponse(
+                100L, (long) PR_NUMBER, "Test PR", "Description", "open",
+                "https://github.com/octocat/hello-world/pull/42",
+                new GithubPullRequestResponse.UserResponse(OWNER),
+                new GithubPullRequestResponse.GitRefResponse("feature-branch"),
+                new GithubPullRequestResponse.GitRefResponse("main"),
+                Instant.now(), Instant.now()
+        );
+
+        repositoryClient.setResponse(repoResponse);
+        pullRequestClient.setResponse(prResponse);
+        filesClient.setException(new GithubApiException("GitHub API server error", 502));
+
+        assertThatThrownBy(() -> reviewService.getReviewInput(INSTALLATION_ID, OWNER, REPO, PR_NUMBER))
+                .isInstanceOf(GithubApiException.class)
+                .hasMessageContaining("GitHub API server error");
     }
 
     @Test
