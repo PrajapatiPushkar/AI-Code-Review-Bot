@@ -40,6 +40,9 @@ public class CodeReview {
     @Column(name = "pull_request_number", nullable = false)
     private Integer pullRequestNumber;
 
+    @Column(name = "commit_sha")
+    private String commitSha;
+
     @Column(name = "review_summary", columnDefinition = "TEXT")
     private String reviewSummary;
 
@@ -63,15 +66,20 @@ public class CodeReview {
     }
 
     public CodeReview(Long installationId, String owner, String repository, Integer pullRequestNumber) {
-        this(installationId, owner, repository, pullRequestNumber, null);
+        this(installationId, owner, repository, pullRequestNumber, null, null);
     }
 
     public CodeReview(Long installationId, String owner, String repository, Integer pullRequestNumber, User user) {
+        this(installationId, owner, repository, pullRequestNumber, user, null);
+    }
+
+    public CodeReview(Long installationId, String owner, String repository, Integer pullRequestNumber, User user, String commitSha) {
         this.installationId = installationId;
         this.owner = owner;
         this.repository = repository;
         this.pullRequestNumber = pullRequestNumber;
         this.user = user;
+        this.commitSha = commitSha;
         this.status = CodeReviewStatus.IN_PROGRESS;
         this.createdAt = Instant.now();
     }
@@ -122,6 +130,14 @@ public class CodeReview {
 
     public void setPullRequestNumber(Integer pullRequestNumber) {
         this.pullRequestNumber = pullRequestNumber;
+    }
+
+    public String getCommitSha() {
+        return commitSha;
+    }
+
+    public void setCommitSha(String commitSha) {
+        this.commitSha = commitSha;
     }
 
     public String getReviewSummary() {

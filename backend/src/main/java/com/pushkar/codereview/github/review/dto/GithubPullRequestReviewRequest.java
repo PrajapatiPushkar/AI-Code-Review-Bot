@@ -25,14 +25,22 @@ public class GithubPullRequestReviewRequest {
     @JsonAlias({"pull_request_number", "pullRequestNumber", "prNumber"})
     private Long pullRequestNumber;
 
+    @JsonAlias({"commitSha", "commit_sha", "commit", "sha"})
+    private String commitSha;
+
     public GithubPullRequestReviewRequest() {
     }
 
     public GithubPullRequestReviewRequest(Long installationId, String owner, String repository, Long pullRequestNumber) {
+        this(installationId, owner, repository, pullRequestNumber, null);
+    }
+
+    public GithubPullRequestReviewRequest(Long installationId, String owner, String repository, Long pullRequestNumber, String commitSha) {
         this.installationId = installationId;
         this.owner = owner;
         this.repository = repository;
         this.pullRequestNumber = pullRequestNumber;
+        this.commitSha = commitSha;
     }
 
     public Long getInstallationId() {
@@ -65,6 +73,14 @@ public class GithubPullRequestReviewRequest {
 
     public void setPullRequestNumber(Long pullRequestNumber) {
         this.pullRequestNumber = pullRequestNumber;
+    }
+
+    public String getCommitSha() {
+        return commitSha;
+    }
+
+    public void setCommitSha(String commitSha) {
+        this.commitSha = commitSha;
     }
 
     @Override

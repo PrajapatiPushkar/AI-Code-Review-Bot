@@ -46,7 +46,7 @@ class CodeReviewControllerTest {
     void testReviewPullRequest_Returns202Accepted() throws Exception {
         GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L);
         CodeReviewExecutionResult expectedResult = new CodeReviewExecutionResult(
-                100L, 123456L, "octocat", "hello-world", 42L, "IN_PROGRESS", "", 0, 0
+                100L, 123456L, "octocat", "hello-world", 42L, "IN_PROGRESS", "", 0, 0, true, null
         );
         stubCodeReviewService.setResult(expectedResult);
 
@@ -59,13 +59,38 @@ class CodeReviewControllerTest {
                 .andExpect(jsonPath("$.owner").value("octocat"))
                 .andExpect(jsonPath("$.repository").value("hello-world"))
                 .andExpect(jsonPath("$.pullRequestNumber").value(42))
-                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.created").value(true));
 
         assertThat(stubCodeReviewService.isCalled()).isTrue();
         assertThat(stubCodeReviewService.getReceivedInstallationId()).isEqualTo(123456L);
         assertThat(stubCodeReviewService.getReceivedOwner()).isEqualTo("octocat");
         assertThat(stubCodeReviewService.getReceivedRepository()).isEqualTo("hello-world");
         assertThat(stubCodeReviewService.getReceivedPullRequestNumber()).isEqualTo(42);
+    }
+
+    @Test
+    void testReviewPullRequest_DuplicateCompleted_Returns200Ok() throws Exception {
+        GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L, "sha123");
+        CodeReviewExecutionResult expectedResult = new CodeReviewExecutionResult(
+                100L, 123456L, "octocat", "hello-world", 42L, "COMPLETED", "Looks good", 3, 2, false, "sha123"
+        );
+        stubCodeReviewService.setResult(expectedResult);
+
+        mockMvc.perform(post("/api/v1/code-reviews/pull-request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.codeReviewId").value(100))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.created").value(false))
+                .andExpect(jsonPath("$.reviewSummary").value("Looks good"))
+                .andExpect(jsonPath("$.totalFindings").value(3))
+                .andExpect(jsonPath("$.postedCommentsCount").value(2))
+                .andExpect(jsonPath("$.commitSha").value("sha123"));
+
+        assertThat(stubCodeReviewService.isCalled()).isTrue();
+        assertThat(stubCodeReviewService.getReceivedCommitSha()).isEqualTo("sha123");
     }
 
     @Test
@@ -188,6 +213,7 @@ class CodeReviewControllerTest {
         private String receivedOwner;
         private String receivedRepository;
         private long receivedPullRequestNumber;
+        private String receivedCommitSha;
 
         public StubCodeReviewService() {
             super(null, null, null, null);
@@ -221,18 +247,28 @@ class CodeReviewControllerTest {
             return receivedPullRequestNumber;
         }
 
+        public String getReceivedCommitSha() {
+            return receivedCommitSha;
+        }
+
         @Override
         public CodeReviewExecutionResult executeCodeReview(Long installationId, String owner, String repository, int pullRequestNumber) {
-            return executeCodeReview(installationId, owner, repository, (long) pullRequestNumber);
+            return executeCodeReview(installationId, owner, repository, (long) pullRequestNumber, null);
         }
 
         @Override
         public CodeReviewExecutionResult executeCodeReview(Long installationId, String owner, String repository, long pullRequestNumber) {
+            return executeCodeReview(installationId, owner, repository, pullRequestNumber, null);
+        }
+
+        @Override
+        public CodeReviewExecutionResult executeCodeReview(Long installationId, String owner, String repository, long pullRequestNumber, String commitSha) {
             this.called = true;
             this.receivedInstallationId = installationId;
             this.receivedOwner = owner;
             this.receivedRepository = repository;
             this.receivedPullRequestNumber = pullRequestNumber;
+            this.receivedCommitSha = commitSha;
             if (exception != null) {
                 throw exception;
             }

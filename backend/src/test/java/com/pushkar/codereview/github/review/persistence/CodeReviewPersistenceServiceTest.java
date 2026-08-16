@@ -71,6 +71,19 @@ class CodeReviewPersistenceServiceTest {
                 .hasMessageContaining("CodeReview record not found with id: 999");
     }
 
+    @Test
+    void testFindDuplicateReview() {
+        CodeReview review1 = persistenceService.createInProgressReview(12345L, "octocat", "hello-world", 42, null, "sha123");
+        
+        var duplicateOpt = persistenceService.findDuplicateReview(null, 12345L, "octocat", "hello-world", 42, "sha123");
+        assertThat(duplicateOpt).isPresent();
+        assertThat(duplicateOpt.get().getId()).isEqualTo(review1.getId());
+        assertThat(duplicateOpt.get().getCommitSha()).isEqualTo("sha123");
+
+        var differentShaOpt = persistenceService.findDuplicateReview(null, 12345L, "octocat", "hello-world", 42, "sha999");
+        assertThat(differentShaOpt).isEmpty();
+    }
+
     // --- Stub Repository ---
 
     private static class StubCodeReviewRepository extends StubJpaRepository<CodeReview, Long> implements CodeReviewRepository {
@@ -135,6 +148,20 @@ class CodeReviewPersistenceServiceTest {
             return database.values().stream()
                     .filter(r -> r.getId().equals(id) && r.getUser() != null && userId.equals(r.getUser().getId()))
                     .findFirst();
+        }
+
+        @Override
+        public java.util.List<CodeReview> findDuplicateReviews(Long userId, Long installationId, String owner, String repository, Integer pullRequestNumber, String commitSha, java.util.List<CodeReviewStatus> statuses) {
+            return database.values().stream()
+                    .filter(r -> userId == null || (r.getUser() != null && userId.equals(r.getUser().getId())))
+                    .filter(r -> installationId != null && installationId.equals(r.getInstallationId()))
+                    .filter(r -> owner != null && owner.equalsIgnoreCase(r.getOwner()))
+                    .filter(r -> repository != null && repository.equalsIgnoreCase(r.getRepository()))
+                    .filter(r -> pullRequestNumber != null && pullRequestNumber.equals(r.getPullRequestNumber()))
+                    .filter(r -> commitSha == null || r.getCommitSha() == null || commitSha.equalsIgnoreCase(r.getCommitSha()))
+                    .filter(r -> statuses != null && statuses.contains(r.getStatus()))
+                    .sorted(java.util.Comparator.comparing(CodeReview::getId).reversed())
+                    .toList();
         }
     }
 

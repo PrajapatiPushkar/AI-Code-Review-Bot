@@ -27,8 +27,12 @@ public class CodeReviewController {
                 request.getInstallationId(),
                 request.getOwner(),
                 request.getRepository(),
-                request.getPullRequestNumber()
+                request.getPullRequestNumber(),
+                request.getCommitSha()
         );
+        if ("COMPLETED".equalsIgnoreCase(result.getStatus())) {
+            return ResponseEntity.ok(result);
+        }
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(result);
     }
 }

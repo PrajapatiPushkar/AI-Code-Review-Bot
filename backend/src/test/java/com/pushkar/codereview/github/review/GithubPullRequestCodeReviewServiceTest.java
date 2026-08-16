@@ -86,13 +86,133 @@ class GithubPullRequestCodeReviewServiceTest {
         assertThat(result.getRepository()).isEqualTo(REPO);
         assertThat(result.getPullRequestNumber()).isEqualTo((long) PR_NUMBER);
         assertThat(result.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(result.isCreated()).isTrue();
 
         // Persistence & Async verifications
         assertThat(persistenceService.isCreatedInProgress()).isTrue();
         assertThat(persistenceService.getLastEntity().getUser()).isEqualTo(user1);
         assertThat(asyncRunner.isDispatched()).isTrue();
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(1);
         assertThat(asyncRunner.getDispatchedReviewId()).isEqualTo(100L);
         assertThat(asyncRunner.getDispatchedInstallationId()).isEqualTo(INSTALLATION_ID);
+    }
+
+    @Test
+    void testExecuteCodeReview_DuplicateInProgress_ReusesExistingReview() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        // First submission creates review
+        CodeReviewExecutionResult result1 = codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha123");
+        assertThat(result1.isCreated()).isTrue();
+        assertThat(result1.getCodeReviewId()).isEqualTo(100L);
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(1);
+
+        // Second identical submission while IN_PROGRESS reuses review
+        CodeReviewExecutionResult result2 = codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha123");
+        assertThat(result2.isCreated()).isFalse();
+        assertThat(result2.getCodeReviewId()).isEqualTo(100L);
+        assertThat(result2.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(1); // Async runner not triggered again
+    }
+
+    @Test
+    void testExecuteCodeReview_DuplicateCompleted_ReusesCompletedReview() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        CodeReviewExecutionResult result1 = codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha123");
+        assertThat(result1.isCreated()).isTrue();
+
+        // Simulate review completion
+        CodeReview lastEntity = persistenceService.getLastEntity();
+        lastEntity.setStatus(CodeReviewStatus.COMPLETED);
+        lastEntity.setReviewSummary("Code looks good!");
+        lastEntity.setTotalFindings(5);
+        lastEntity.setPostedCommentsCount(2);
+
+        // Second submission after COMPLETED reuses completed review
+        CodeReviewExecutionResult result2 = codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha123");
+        assertThat(result2.isCreated()).isFalse();
+        assertThat(result2.getCodeReviewId()).isEqualTo(result1.getCodeReviewId());
+        assertThat(result2.getStatus()).isEqualTo("COMPLETED");
+        assertThat(result2.getReviewSummary()).isEqualTo("Code looks good!");
+        assertThat(result2.getTotalFindings()).isEqualTo(5);
+        assertThat(result2.getPostedCommentsCount()).isEqualTo(2);
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(1); // Async runner not triggered again
+    }
+
+    @Test
+    void testExecuteCodeReview_DifferentPR_CreatesNewReview() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        CodeReviewExecutionResult result1 = codeReviewService.executeCodeReview(1L, OWNER, REPO, 42, "sha123");
+        CodeReviewExecutionResult result2 = codeReviewService.executeCodeReview(1L, OWNER, REPO, 43, "sha123");
+
+        assertThat(result1.isCreated()).isTrue();
+        assertThat(result2.isCreated()).isTrue();
+        assertThat(result2.getCodeReviewId()).isNotEqualTo(result1.getCodeReviewId());
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(2);
+    }
+
+    @Test
+    void testExecuteCodeReview_DifferentRepository_CreatesNewReview() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        CodeReviewExecutionResult result1 = codeReviewService.executeCodeReview(1L, OWNER, "repo-one", PR_NUMBER, "sha123");
+        CodeReviewExecutionResult result2 = codeReviewService.executeCodeReview(1L, OWNER, "repo-two", PR_NUMBER, "sha123");
+
+        assertThat(result1.isCreated()).isTrue();
+        assertThat(result2.isCreated()).isTrue();
+        assertThat(result2.getCodeReviewId()).isNotEqualTo(result1.getCodeReviewId());
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(2);
+    }
+
+    @Test
+    void testExecuteCodeReview_DifferentCommitSha_CreatesNewReview() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        CodeReviewExecutionResult result1 = codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha111");
+        CodeReviewExecutionResult result2 = codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha222");
+
+        assertThat(result1.isCreated()).isTrue();
+        assertThat(result2.isCreated()).isTrue();
+        assertThat(result2.getCodeReviewId()).isNotEqualTo(result1.getCodeReviewId());
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(2);
+    }
+
+    @Test
+    void testExecuteCodeReview_ConcurrentDuplicateSubmissions_CreatesOnlyOneReview() throws Exception {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        int threadCount = 10;
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(threadCount);
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+
+        List<java.util.concurrent.Future<CodeReviewExecutionResult>> futures = new ArrayList<>();
+
+        for (int i = 0; i < threadCount; i++) {
+            futures.add(executor.submit(() -> {
+                latch.await();
+                return codeReviewService.executeCodeReview(1L, OWNER, REPO, PR_NUMBER, "sha-concurrent");
+            }));
+        }
+
+        latch.countDown();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        List<CodeReviewExecutionResult> results = new ArrayList<>();
+        for (var future : futures) {
+            results.add(future.get());
+        }
+
+        long createdCount = results.stream().filter(CodeReviewExecutionResult::isCreated).count();
+        long reusedCount = results.stream().filter(r -> !r.isCreated()).count();
+        Long firstReviewId = results.get(0).getCodeReviewId();
+
+        assertThat(createdCount).isEqualTo(1);
+        assertThat(reusedCount).isEqualTo(threadCount - 1);
+        assertThat(results.stream().allMatch(r -> r.getCodeReviewId().equals(firstReviewId))).isTrue();
+        assertThat(asyncRunner.getDispatchCount()).isEqualTo(1);
     }
 
     @Test
@@ -173,7 +293,7 @@ class GithubPullRequestCodeReviewServiceTest {
     // --- Helper Stubs ---
 
     private static class StubAsyncRunner extends AsyncCodeReviewRunner {
-        private boolean dispatched = false;
+        private int dispatchCount = 0;
         private Long dispatchedReviewId;
         private Long dispatchedInstallationId;
 
@@ -181,21 +301,24 @@ class GithubPullRequestCodeReviewServiceTest {
             super(null, null, null, null);
         }
 
-        public boolean isDispatched() { return dispatched; }
+        public boolean isDispatched() { return dispatchCount > 0; }
+        public int getDispatchCount() { return dispatchCount; }
         public Long getDispatchedReviewId() { return dispatchedReviewId; }
         public Long getDispatchedInstallationId() { return dispatchedInstallationId; }
 
         @Override
-        public void executeReviewAsync(Long reviewId, Long installationId, String owner, String repository, long pullRequestNumber) {
-            this.dispatched = true;
+        public synchronized void executeReviewAsync(Long reviewId, Long installationId, String owner, String repository, long pullRequestNumber) {
+            this.dispatchCount++;
             this.dispatchedReviewId = reviewId;
             this.dispatchedInstallationId = installationId;
         }
     }
 
     private static class StubPersistenceService extends CodeReviewPersistenceService {
+        private final List<CodeReview> reviews = new java.util.concurrent.CopyOnWriteArrayList<>();
         private CodeReview entity;
         private boolean createdInProgress = false;
+        private final java.util.concurrent.atomic.AtomicLong idCounter = new java.util.concurrent.atomic.AtomicLong(100L);
 
         public StubPersistenceService() { super(null); }
 
@@ -203,13 +326,37 @@ class GithubPullRequestCodeReviewServiceTest {
         public CodeReview getLastEntity() { return entity; }
 
         @Override
-        public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, User user) {
+        public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, User user, String commitSha) {
             this.createdInProgress = true;
-            this.entity = new CodeReview(installationId, owner, repositoryName, pullRequestNumber, user);
-            this.entity.setId(100L);
+            this.entity = new CodeReview(installationId, owner, repositoryName, pullRequestNumber, user, commitSha);
+            this.entity.setId(idCounter.getAndIncrement());
             this.entity.setStatus(CodeReviewStatus.IN_PROGRESS);
             this.entity.setCreatedAt(Instant.now());
+            reviews.add(entity);
             return entity;
+        }
+
+        @Override
+        public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, User user) {
+            return createInProgressReview(installationId, owner, repositoryName, pullRequestNumber, user, null);
+        }
+
+        @Override
+        public Optional<CodeReview> findDuplicateReview(Long userId, Long installationId, String owner, String repositoryName, Integer pullRequestNumber, String commitSha) {
+            return reviews.stream()
+                    .filter(r -> userId == null || (r.getUser() != null && userId.equals(r.getUser().getId())))
+                    .filter(r -> installationId != null && installationId.equals(r.getInstallationId()))
+                    .filter(r -> owner != null && owner.equalsIgnoreCase(r.getOwner()))
+                    .filter(r -> repositoryName != null && repositoryName.equalsIgnoreCase(r.getRepository()))
+                    .filter(r -> pullRequestNumber != null && pullRequestNumber.equals(r.getPullRequestNumber()))
+                    .filter(r -> commitSha == null || r.getCommitSha() == null || commitSha.equalsIgnoreCase(r.getCommitSha()))
+                    .filter(r -> r.getStatus() == CodeReviewStatus.IN_PROGRESS || r.getStatus() == CodeReviewStatus.COMPLETED)
+                    .sorted((a, b) -> {
+                        if (a.getStatus() == CodeReviewStatus.IN_PROGRESS && b.getStatus() != CodeReviewStatus.IN_PROGRESS) return -1;
+                        if (a.getStatus() != CodeReviewStatus.IN_PROGRESS && b.getStatus() == CodeReviewStatus.IN_PROGRESS) return 1;
+                        return b.getId().compareTo(a.getId());
+                    })
+                    .findFirst();
         }
     }
 

@@ -6,12 +6,16 @@ import com.pushkar.codereview.github.GithubInstallation;
 import com.pushkar.codereview.github.GithubInstallationRepository;
 import com.pushkar.codereview.github.review.ai.AiReviewService;
 import com.pushkar.codereview.github.review.dto.CodeReviewExecutionResult;
+import com.pushkar.codereview.github.review.dto.PullRequestReviewContext;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewPersistenceService;
 import com.pushkar.codereview.security.CurrentUserService;
 import com.pushkar.codereview.user.User;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class GithubPullRequestCodeReviewService {
@@ -23,6 +27,8 @@ public class GithubPullRequestCodeReviewService {
     private final CurrentUserService currentUserService;
     private final GithubInstallationRepository githubInstallationRepository;
     private final AsyncCodeReviewRunner asyncCodeReviewRunner;
+
+    private final ConcurrentHashMap<String, Object> reviewLocks = new ConcurrentHashMap<>();
 
     public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
                                                AiReviewService aiReviewService,
@@ -68,13 +74,21 @@ public class GithubPullRequestCodeReviewService {
                                                          String owner,
                                                          String repository,
                                                          int pullRequestNumber) {
-        return executeCodeReview(installationId, owner, repository, (long) pullRequestNumber);
+        return executeCodeReview(installationId, owner, repository, (long) pullRequestNumber, null);
     }
 
     public CodeReviewExecutionResult executeCodeReview(Long requestedInstallationId,
                                                          String owner,
                                                          String repository,
                                                          long pullRequestNumber) {
+        return executeCodeReview(requestedInstallationId, owner, repository, pullRequestNumber, null);
+    }
+
+    public CodeReviewExecutionResult executeCodeReview(Long requestedInstallationId,
+                                                         String owner,
+                                                         String repository,
+                                                         long pullRequestNumber,
+                                                         String commitSha) {
         validateInputs(requestedInstallationId, owner, repository, pullRequestNumber);
 
         User currentUser = null;
@@ -105,28 +119,89 @@ public class GithubPullRequestCodeReviewService {
             actualGithubInstallationId = installation.getGithubInstallationId();
         }
 
-        CodeReview reviewRecord = null;
-        if (persistenceService != null) {
-            reviewRecord = persistenceService.createInProgressReview(actualGithubInstallationId, owner, repository, (int) pullRequestNumber, currentUser);
+        String resolvedCommitSha = commitSha;
+        if ((resolvedCommitSha == null || resolvedCommitSha.isBlank()) && pullRequestReviewService != null) {
+            try {
+                PullRequestReviewContext context = pullRequestReviewService.getReviewContext(actualGithubInstallationId, owner, repository, pullRequestNumber);
+                if (context != null && context.getPullRequest() != null && context.getPullRequest().getHead() != null) {
+                    resolvedCommitSha = context.getPullRequest().getHead().getSha();
+                }
+            } catch (ResourceNotFoundException e) {
+                throw e;
+            } catch (Exception e) {
+                // If fetching PR context fails, fall back to null resolvedCommitSha
+            }
         }
 
-        Long reviewId = (reviewRecord != null) ? reviewRecord.getId() : null;
-
-        if (asyncCodeReviewRunner != null) {
-            asyncCodeReviewRunner.executeReviewAsync(reviewId, actualGithubInstallationId, owner, repository, pullRequestNumber);
-        }
-
-        return new CodeReviewExecutionResult(
-                reviewId,
+        Long userId = (currentUser != null) ? currentUser.getId() : null;
+        String lockKey = String.format("%s:%s:%s:%s:%s:%s",
+                userId != null ? userId : "anonymous",
                 actualGithubInstallationId,
-                owner,
-                repository,
+                owner.toLowerCase(),
+                repository.toLowerCase(),
                 pullRequestNumber,
-                "IN_PROGRESS",
-                "",
-                0,
-                0
-        );
+                resolvedCommitSha != null ? resolvedCommitSha : "");
+
+        Object lock = reviewLocks.computeIfAbsent(lockKey, k -> new Object());
+
+        synchronized (lock) {
+            try {
+                if (persistenceService != null) {
+                    Optional<CodeReview> existingReviewOpt = persistenceService.findDuplicateReview(
+                            userId, actualGithubInstallationId, owner, repository, (int) pullRequestNumber, resolvedCommitSha
+                    );
+
+                    if (existingReviewOpt.isPresent()) {
+                        CodeReview existing = existingReviewOpt.get();
+                        String existingStatus = existing.getStatus() != null ? existing.getStatus().name() : "IN_PROGRESS";
+                        String existingSummary = existing.getReviewSummary() != null ? existing.getReviewSummary() : "";
+                        int totalFindings = existing.getTotalFindings() != null ? existing.getTotalFindings() : 0;
+                        int postedComments = existing.getPostedCommentsCount() != null ? existing.getPostedCommentsCount() : 0;
+
+                        return new CodeReviewExecutionResult(
+                                existing.getId(),
+                                existing.getInstallationId(),
+                                existing.getOwner(),
+                                existing.getRepository(),
+                                existing.getPullRequestNumber() != null ? existing.getPullRequestNumber().longValue() : pullRequestNumber,
+                                existingStatus,
+                                existingSummary,
+                                totalFindings,
+                                postedComments,
+                                false,
+                                existing.getCommitSha() != null ? existing.getCommitSha() : resolvedCommitSha
+                        );
+                    }
+                }
+
+                CodeReview reviewRecord = null;
+                if (persistenceService != null) {
+                    reviewRecord = persistenceService.createInProgressReview(actualGithubInstallationId, owner, repository, (int) pullRequestNumber, currentUser, resolvedCommitSha);
+                }
+
+                Long reviewId = (reviewRecord != null) ? reviewRecord.getId() : null;
+
+                if (asyncCodeReviewRunner != null) {
+                    asyncCodeReviewRunner.executeReviewAsync(reviewId, actualGithubInstallationId, owner, repository, pullRequestNumber);
+                }
+
+                return new CodeReviewExecutionResult(
+                        reviewId,
+                        actualGithubInstallationId,
+                        owner,
+                        repository,
+                        pullRequestNumber,
+                        "IN_PROGRESS",
+                        "",
+                        0,
+                        0,
+                        true,
+                        resolvedCommitSha
+                );
+            } finally {
+                reviewLocks.remove(lockKey, lock);
+            }
+        }
     }
 
     private void validateInputs(Long installationId, String owner, String repository, long pullRequestNumber) {

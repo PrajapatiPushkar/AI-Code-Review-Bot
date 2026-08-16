@@ -1,5 +1,7 @@
 package com.pushkar.codereview.github.review.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Objects;
 
 public class CodeReviewExecutionResult {
@@ -14,14 +16,28 @@ public class CodeReviewExecutionResult {
     private int totalFindings;
     private int postedCommentsCount;
 
+    @JsonProperty("created")
+    private boolean created = true;
+
+    @JsonProperty("commitSha")
+    private String commitSha;
+
     public CodeReviewExecutionResult() {
     }
 
     public CodeReviewExecutionResult(String repository, Long pullRequestNumber, String reviewSummary, int totalFindings, int postedCommentsCount) {
-        this(null, null, null, repository, pullRequestNumber, "COMPLETED", reviewSummary, totalFindings, postedCommentsCount);
+        this(null, null, null, repository, pullRequestNumber, "COMPLETED", reviewSummary, totalFindings, postedCommentsCount, true, null);
     }
 
     public CodeReviewExecutionResult(Long codeReviewId, Long installationId, String owner, String repository, Long pullRequestNumber, String status, String reviewSummary, int totalFindings, int postedCommentsCount) {
+        this(codeReviewId, installationId, owner, repository, pullRequestNumber, status, reviewSummary, totalFindings, postedCommentsCount, true, null);
+    }
+
+    public CodeReviewExecutionResult(Long codeReviewId, Long installationId, String owner, String repository, Long pullRequestNumber, String status, String reviewSummary, int totalFindings, int postedCommentsCount, boolean created) {
+        this(codeReviewId, installationId, owner, repository, pullRequestNumber, status, reviewSummary, totalFindings, postedCommentsCount, created, null);
+    }
+
+    public CodeReviewExecutionResult(Long codeReviewId, Long installationId, String owner, String repository, Long pullRequestNumber, String status, String reviewSummary, int totalFindings, int postedCommentsCount, boolean created, String commitSha) {
         this.codeReviewId = codeReviewId;
         this.installationId = installationId;
         this.owner = owner;
@@ -31,6 +47,8 @@ public class CodeReviewExecutionResult {
         this.reviewSummary = reviewSummary;
         this.totalFindings = totalFindings;
         this.postedCommentsCount = postedCommentsCount;
+        this.created = created;
+        this.commitSha = commitSha;
     }
 
     public Long getCodeReviewId() {
@@ -105,6 +123,26 @@ public class CodeReviewExecutionResult {
         this.postedCommentsCount = postedCommentsCount;
     }
 
+    public boolean isCreated() {
+        return created;
+    }
+
+    public boolean getCreated() {
+        return created;
+    }
+
+    public void setCreated(boolean created) {
+        this.created = created;
+    }
+
+    public String getCommitSha() {
+        return commitSha;
+    }
+
+    public void setCommitSha(String commitSha) {
+        this.commitSha = commitSha;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -112,18 +150,20 @@ public class CodeReviewExecutionResult {
         CodeReviewExecutionResult that = (CodeReviewExecutionResult) o;
         return totalFindings == that.totalFindings &&
                 postedCommentsCount == that.postedCommentsCount &&
+                created == that.created &&
                 Objects.equals(codeReviewId, that.codeReviewId) &&
                 Objects.equals(installationId, that.installationId) &&
                 Objects.equals(owner, that.owner) &&
                 Objects.equals(repository, that.repository) &&
                 Objects.equals(pullRequestNumber, that.pullRequestNumber) &&
                 Objects.equals(status, that.status) &&
-                Objects.equals(reviewSummary, that.reviewSummary);
+                Objects.equals(reviewSummary, that.reviewSummary) &&
+                Objects.equals(commitSha, that.commitSha);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(codeReviewId, installationId, owner, repository, pullRequestNumber, status, reviewSummary, totalFindings, postedCommentsCount);
+        return Objects.hash(codeReviewId, installationId, owner, repository, pullRequestNumber, status, reviewSummary, totalFindings, postedCommentsCount, created, commitSha);
     }
 
     @Override
@@ -138,6 +178,8 @@ public class CodeReviewExecutionResult {
                 ", reviewSummary='" + reviewSummary + '\'' +
                 ", totalFindings=" + totalFindings +
                 ", postedCommentsCount=" + postedCommentsCount +
+                ", created=" + created +
+                ", commitSha='" + commitSha + '\'' +
                 '}';
     }
 }

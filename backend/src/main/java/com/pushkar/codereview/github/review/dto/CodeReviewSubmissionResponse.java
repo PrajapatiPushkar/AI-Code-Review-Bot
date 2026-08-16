@@ -1,5 +1,7 @@
 package com.pushkar.codereview.github.review.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Objects;
 
 public class CodeReviewSubmissionResponse {
@@ -11,16 +13,32 @@ public class CodeReviewSubmissionResponse {
     private Long pullRequestNumber;
     private String status;
 
+    @JsonProperty("created")
+    private boolean created = true;
+
+    @JsonProperty("commitSha")
+    private String commitSha;
+
     public CodeReviewSubmissionResponse() {
     }
 
     public CodeReviewSubmissionResponse(Long codeReviewId, Long installationId, String owner, String repository, Long pullRequestNumber, String status) {
+        this(codeReviewId, installationId, owner, repository, pullRequestNumber, status, true, null);
+    }
+
+    public CodeReviewSubmissionResponse(Long codeReviewId, Long installationId, String owner, String repository, Long pullRequestNumber, String status, boolean created) {
+        this(codeReviewId, installationId, owner, repository, pullRequestNumber, status, created, null);
+    }
+
+    public CodeReviewSubmissionResponse(Long codeReviewId, Long installationId, String owner, String repository, Long pullRequestNumber, String status, boolean created, String commitSha) {
         this.codeReviewId = codeReviewId;
         this.installationId = installationId;
         this.owner = owner;
         this.repository = repository;
         this.pullRequestNumber = pullRequestNumber;
         this.status = status;
+        this.created = created;
+        this.commitSha = commitSha;
     }
 
     public Long getCodeReviewId() {
@@ -71,22 +89,44 @@ public class CodeReviewSubmissionResponse {
         this.status = status;
     }
 
+    public boolean isCreated() {
+        return created;
+    }
+
+    public boolean getCreated() {
+        return created;
+    }
+
+    public void setCreated(boolean created) {
+        this.created = created;
+    }
+
+    public String getCommitSha() {
+        return commitSha;
+    }
+
+    public void setCommitSha(String commitSha) {
+        this.commitSha = commitSha;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         CodeReviewSubmissionResponse that = (CodeReviewSubmissionResponse) o;
-        return Objects.equals(codeReviewId, that.codeReviewId) &&
+        return created == that.created &&
+                Objects.equals(codeReviewId, that.codeReviewId) &&
                 Objects.equals(installationId, that.installationId) &&
                 Objects.equals(owner, that.owner) &&
                 Objects.equals(repository, that.repository) &&
                 Objects.equals(pullRequestNumber, that.pullRequestNumber) &&
-                Objects.equals(status, that.status);
+                Objects.equals(status, that.status) &&
+                Objects.equals(commitSha, that.commitSha);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(codeReviewId, installationId, owner, repository, pullRequestNumber, status);
+        return Objects.hash(codeReviewId, installationId, owner, repository, pullRequestNumber, status, created, commitSha);
     }
 
     @Override
@@ -98,6 +138,8 @@ public class CodeReviewSubmissionResponse {
                 ", repository='" + repository + '\'' +
                 ", pullRequestNumber=" + pullRequestNumber +
                 ", status='" + status + '\'' +
+                ", created=" + created +
+                ", commitSha='" + commitSha + '\'' +
                 '}';
     }
 }

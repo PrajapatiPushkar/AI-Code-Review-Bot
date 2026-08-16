@@ -27,16 +27,44 @@ public class CodeReviewPersistenceService {
 
     @Transactional
     public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber) {
-        return createInProgressReview(installationId, owner, repositoryName, pullRequestNumber, null);
+        return createInProgressReview(installationId, owner, repositoryName, pullRequestNumber, null, null);
     }
 
     @Transactional
     public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, User user) {
-        CodeReview review = new CodeReview(installationId, owner, repositoryName, pullRequestNumber, user);
+        return createInProgressReview(installationId, owner, repositoryName, pullRequestNumber, user, null);
+    }
+
+    @Transactional
+    public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, User user, String commitSha) {
+        CodeReview review = new CodeReview(installationId, owner, repositoryName, pullRequestNumber, user, commitSha);
         review.setStatus(CodeReviewStatus.IN_PROGRESS);
         review.setCreatedAt(Instant.now());
         review.setCompletedAt(null);
         return repository.save(review);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<CodeReview> findDuplicateReview(Long userId, Long installationId, String owner, String repositoryName, Integer pullRequestNumber, String commitSha) {
+        if (repository == null) {
+            return java.util.Optional.empty();
+        }
+        List<CodeReview> duplicates = repository.findDuplicateReviews(
+                userId, installationId, owner, repositoryName, pullRequestNumber, commitSha,
+                List.of(CodeReviewStatus.IN_PROGRESS, CodeReviewStatus.COMPLETED)
+        );
+        if (duplicates == null || duplicates.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        java.util.Optional<CodeReview> inProgress = duplicates.stream()
+                .filter(r -> r.getStatus() == CodeReviewStatus.IN_PROGRESS)
+                .findFirst();
+        if (inProgress.isPresent()) {
+            return inProgress;
+        }
+        return duplicates.stream()
+                .filter(r -> r.getStatus() == CodeReviewStatus.COMPLETED)
+                .findFirst();
     }
 
     @Transactional

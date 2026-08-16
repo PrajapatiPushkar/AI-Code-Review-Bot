@@ -172,11 +172,19 @@ public class GithubPullRequestResponse {
         @JsonProperty("ref")
         private String ref;
 
+        @JsonProperty("sha")
+        private String sha;
+
         public GitRefResponse() {
         }
 
         public GitRefResponse(String ref) {
+            this(ref, null);
+        }
+
+        public GitRefResponse(String ref, String sha) {
             this.ref = ref;
+            this.sha = sha;
         }
 
         public String getRef() {
@@ -185,6 +193,14 @@ public class GithubPullRequestResponse {
 
         public void setRef(String ref) {
             this.ref = ref;
+        }
+
+        public String getSha() {
+            return sha;
+        }
+
+        public void setSha(String sha) {
+            this.sha = sha;
         }
     }
 }
