@@ -2,10 +2,11 @@ package com.pushkar.codereview.github;
 
 import com.pushkar.codereview.config.JwtProperties;
 import com.pushkar.codereview.config.SecurityConfig;
+import com.pushkar.codereview.exception.DuplicateResourceException;
 import com.pushkar.codereview.exception.GlobalExceptionHandler;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
+import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
-import com.pushkar.codereview.security.CurrentUserService;
 import com.pushkar.codereview.security.CustomUserDetailsService;
 import com.pushkar.codereview.security.JwtAuthenticationFilter;
 import com.pushkar.codereview.security.JwtService;
@@ -18,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,6 +31,7 @@ import java.util.Optional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -68,6 +71,57 @@ class GithubInstallationControllerTest {
         User other = new User("othercat", "other@example.com", "hash", "USER");
         other.setId(2L);
         userRepository.save(other);
+    }
+
+    @Test
+    void testRegisterInstallation_Success_Returns201() throws Exception {
+        String token = jwtService.generateToken("user@example.com", "USER");
+
+        mockMvc.perform(post("/api/v1/github/installations")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installationId\":123456,\"githubAccountLogin\":\"octocat\",\"githubAccountType\":\"User\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.githubInstallationId").value(123456))
+                .andExpect(jsonPath("$.githubAccountLogin").value("octocat"));
+    }
+
+    @Test
+    void testRegisterInstallation_BlankAccountLogin_Returns400() throws Exception {
+        String token = jwtService.generateToken("user@example.com", "USER");
+
+        mockMvc.perform(post("/api/v1/github/installations")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installationId\":123456,\"githubAccountLogin\":\"   \",\"githubAccountType\":\"User\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    void testRegisterInstallation_InvalidInstallationId_Returns400() throws Exception {
+        String token = jwtService.generateToken("user@example.com", "USER");
+
+        mockMvc.perform(post("/api/v1/github/installations")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installationId\":-5,\"githubAccountLogin\":\"octocat\",\"githubAccountType\":\"User\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    void testRegisterInstallation_Conflict_Returns409() throws Exception {
+        String token = jwtService.generateToken("user@example.com", "USER");
+        installationService.setConflictForInstallationId(99999L);
+
+        mockMvc.perform(post("/api/v1/github/installations")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installationId\":99999,\"githubAccountLogin\":\"octocat\",\"githubAccountType\":\"User\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Duplicate Resource Error"));
     }
 
     @Test
@@ -157,6 +211,7 @@ class GithubInstallationControllerTest {
 
     private static class StubGithubInstallationService extends GithubInstallationService {
         private Long accessDeniedId;
+        private Long conflictInstallationId;
 
         public StubGithubInstallationService() {
             super(null, null, null, null);
@@ -166,8 +221,21 @@ class GithubInstallationControllerTest {
             this.accessDeniedId = id;
         }
 
+        public void setConflictForInstallationId(Long installationId) {
+            this.conflictInstallationId = installationId;
+        }
+
         public void clear() {
             this.accessDeniedId = null;
+            this.conflictInstallationId = null;
+        }
+
+        @Override
+        public GithubInstallationResponse registerInstallation(GithubInstallationRequest request) {
+            if (request.getInstallationId().equals(conflictInstallationId)) {
+                throw new DuplicateResourceException("GitHub installation ID " + request.getInstallationId() + " is already registered to another user");
+            }
+            return new GithubInstallationResponse(1L, 1L, request.getInstallationId(), request.getGithubAccountLogin(), request.getGithubAccountType(), Instant.now(), Instant.now());
         }
 
         @Override

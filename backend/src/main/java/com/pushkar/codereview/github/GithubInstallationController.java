@@ -1,6 +1,7 @@
 package com.pushkar.codereview.github;
 
 import com.pushkar.codereview.github.dto.GithubInstallationCreateRequest;
+import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -26,8 +27,8 @@ public class GithubInstallationController {
     }
 
     @PostMapping
-    public ResponseEntity<GithubInstallationResponse> createInstallation(@Valid @RequestBody GithubInstallationCreateRequest request) {
-        GithubInstallationResponse response = githubInstallationService.createInstallation(request);
+    public ResponseEntity<GithubInstallationResponse> registerInstallation(@Valid @RequestBody GithubInstallationRequest request) {
+        GithubInstallationResponse response = githubInstallationService.registerInstallation(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

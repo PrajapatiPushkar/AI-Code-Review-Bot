@@ -3,6 +3,7 @@ package com.pushkar.codereview.github;
 import com.pushkar.codereview.exception.DuplicateResourceException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.dto.GithubInstallationCreateRequest;
+import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import com.pushkar.codereview.github.mapper.GithubInstallationMapper;
 import com.pushkar.codereview.security.CurrentUserService;
@@ -31,6 +32,8 @@ class GithubInstallationServiceTest {
 
     private User user1;
     private User user2;
+    private User devUser;
+    private User adminUser;
 
     @BeforeEach
     void setUp() {
@@ -48,11 +51,87 @@ class GithubInstallationServiceTest {
         user2 = new User("user2", "user2@example.com", "hash", "USER");
         user2.setId(20L);
         userRepository.save(user2);
+
+        devUser = new User("devuser", "dev@example.com", "hash", "DEVELOPER");
+        devUser.setId(30L);
+        userRepository.save(devUser);
+
+        adminUser = new User("adminuser", "admin@example.com", "hash", "ADMIN");
+        adminUser.setId(99L);
+        userRepository.save(adminUser);
     }
 
     @AfterEach
     void tearDown() {
         currentUserService.clear();
+    }
+
+    @Test
+    void testRegisterInstallation_AuthenticatedUser_Success() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        GithubInstallationRequest request = new GithubInstallationRequest(123456L, "octocat", "User");
+        GithubInstallationResponse response = installationService.registerInstallation(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getGithubInstallationId()).isEqualTo(123456L);
+        assertThat(response.getGithubAccountLogin()).isEqualTo("octocat");
+        assertThat(response.getUserId()).isEqualTo(user1.getId());
+    }
+
+    @Test
+    void testRegisterInstallation_AuthenticatedDeveloper_Success() {
+        currentUserService.setContext(devUser.getId(), "dev@example.com", "DEVELOPER", devUser);
+
+        GithubInstallationRequest request = new GithubInstallationRequest(654321L, "devorg", "Organization");
+        GithubInstallationResponse response = installationService.registerInstallation(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getGithubInstallationId()).isEqualTo(654321L);
+        assertThat(response.getGithubAccountLogin()).isEqualTo("devorg");
+        assertThat(response.getUserId()).isEqualTo(devUser.getId());
+    }
+
+    @Test
+    void testRegisterInstallation_AuthenticatedAdmin_Success() {
+        currentUserService.setContext(adminUser.getId(), "admin@example.com", "ADMIN", adminUser);
+
+        GithubInstallationRequest request = new GithubInstallationRequest(777777L, "adminorg", "Organization");
+        GithubInstallationResponse response = installationService.registerInstallation(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getGithubInstallationId()).isEqualTo(777777L);
+        assertThat(response.getUserId()).isEqualTo(adminUser.getId());
+    }
+
+    @Test
+    void testRegisterInstallation_SameUserReRegistration_ReturnsExistingIdempotently() {
+        GithubInstallation i1 = createInstallation(1L, user1, 123456L, "octocat", "User");
+        installationRepository.save(i1);
+
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        GithubInstallationRequest request = new GithubInstallationRequest(123456L, "octocat", "User");
+        GithubInstallationResponse response = installationService.registerInstallation(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getId()).isEqualTo(1L);
+        assertThat(response.getGithubInstallationId()).isEqualTo(123456L);
+        assertThat(response.getUserId()).isEqualTo(user1.getId());
+    }
+
+    @Test
+    void testRegisterInstallation_OwnedByAnotherUser_ThrowsDuplicateResourceException() {
+        GithubInstallation i1 = createInstallation(1L, user1, 123456L, "octocat", "User");
+        installationRepository.save(i1);
+
+        currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
+
+        GithubInstallationRequest request = new GithubInstallationRequest(123456L, "octocat", "User");
+
+        assertThatThrownBy(() -> installationService.registerInstallation(request))
+                .isInstanceOf(DuplicateResourceException.class)
+                .hasMessageContaining("already registered to another user");
     }
 
     @Test
@@ -62,7 +141,7 @@ class GithubInstallationServiceTest {
         installationRepository.save(i1);
         installationRepository.save(i2);
 
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
 
         List<GithubInstallationResponse> responses = installationService.getInstallationsForCurrentUser();
 
@@ -78,7 +157,7 @@ class GithubInstallationServiceTest {
         installationRepository.save(i1);
         installationRepository.save(i2);
 
-        currentUserService.setContext(99L, "admin@example.com", "ADMIN");
+        currentUserService.setContext(99L, "admin@example.com", "ADMIN", adminUser);
 
         List<GithubInstallationResponse> responses = installationService.getInstallationsForCurrentUser();
 
@@ -90,7 +169,7 @@ class GithubInstallationServiceTest {
         GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
         installationRepository.save(i1);
 
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
 
         GithubInstallationResponse response = installationService.getInstallationById(1L);
 
@@ -104,7 +183,7 @@ class GithubInstallationServiceTest {
         GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
         installationRepository.save(i1);
 
-        currentUserService.setContext(99L, "admin@example.com", "ADMIN");
+        currentUserService.setContext(99L, "admin@example.com", "ADMIN", adminUser);
 
         GithubInstallationResponse response = installationService.getInstallationById(1L);
 
@@ -117,7 +196,7 @@ class GithubInstallationServiceTest {
         GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
         installationRepository.save(i1);
 
-        currentUserService.setContext(user2.getId(), "user2@example.com", "USER");
+        currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
 
         assertThatThrownBy(() -> installationService.getInstallationById(1L))
                 .isInstanceOf(AccessDeniedException.class)
@@ -136,7 +215,7 @@ class GithubInstallationServiceTest {
         GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
         installationRepository.save(i1);
 
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
 
         installationService.deleteInstallation(1L);
 
@@ -148,7 +227,7 @@ class GithubInstallationServiceTest {
         GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
         installationRepository.save(i1);
 
-        currentUserService.setContext(99L, "admin@example.com", "ADMIN");
+        currentUserService.setContext(99L, "admin@example.com", "ADMIN", adminUser);
 
         installationService.deleteInstallation(1L);
 
@@ -160,39 +239,13 @@ class GithubInstallationServiceTest {
         GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
         installationRepository.save(i1);
 
-        currentUserService.setContext(user2.getId(), "user2@example.com", "USER");
+        currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
 
         assertThatThrownBy(() -> installationService.deleteInstallation(1L))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("You do not have permission to delete this installation");
 
         assertThat(installationRepository.findById(1L)).isPresent();
-    }
-
-    @Test
-    void testCreateInstallation_Success() {
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
-
-        GithubInstallationCreateRequest request = new GithubInstallationCreateRequest(user1.getId(), 55555L, "neworg", "Organization");
-        GithubInstallationResponse response = installationService.createInstallation(request);
-
-        assertThat(response).isNotNull();
-        assertThat(response.getGithubInstallationId()).isEqualTo(55555L);
-        assertThat(response.getGithubAccountLogin()).isEqualTo("neworg");
-    }
-
-    @Test
-    void testCreateInstallation_DuplicateId_ThrowsDuplicateResourceException() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
-
-        GithubInstallationCreateRequest request = new GithubInstallationCreateRequest(user1.getId(), 10001L, "octocat", "User");
-
-        assertThatThrownBy(() -> installationService.createInstallation(request))
-                .isInstanceOf(DuplicateResourceException.class)
-                .hasMessageContaining("already exists");
     }
 
     private GithubInstallation createInstallation(Long id, User user, Long githubInstId, String login, String type) {
@@ -207,24 +260,33 @@ class GithubInstallationServiceTest {
         private Long userId;
         private String username;
         private String role;
+        private User user;
 
         public StubCurrentUserService() { super(null); }
 
-        public void setContext(Long userId, String username, String role) {
+        public void setContext(Long userId, String username, String role, User user) {
             this.userId = userId;
             this.username = username;
             this.role = role;
+            this.user = user;
         }
 
         public void clear() {
             this.userId = null;
             this.username = null;
             this.role = null;
+            this.user = null;
         }
 
         @Override public boolean isAuthenticated() { return username != null; }
         @Override public String getCurrentUsername() { return username; }
         @Override public Long getCurrentUserId() { return userId; }
+        @Override public User getCurrentUser() {
+            if (user == null) {
+                throw new ResourceNotFoundException("No authenticated user");
+            }
+            return user;
+        }
         @Override
         public boolean hasRole(String roleName) {
             if (role == null) return false;

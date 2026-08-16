@@ -3,6 +3,7 @@ package com.pushkar.codereview.github;
 import com.pushkar.codereview.exception.DuplicateResourceException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.dto.GithubInstallationCreateRequest;
+import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import com.pushkar.codereview.github.mapper.GithubInstallationMapper;
 import com.pushkar.codereview.security.CurrentUserService;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class GithubInstallationService {
@@ -39,6 +41,44 @@ public class GithubInstallationService {
     }
 
     @Transactional
+    public GithubInstallationResponse registerInstallation(GithubInstallationRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body must not be null");
+        }
+
+        User currentUser = null;
+        if (currentUserService != null && currentUserService.isAuthenticated()) {
+            currentUser = currentUserService.getCurrentUser();
+        } else {
+            throw new AccessDeniedException("Authentication is required to register an installation");
+        }
+
+        Long installationId = request.getInstallationId();
+        Optional<GithubInstallation> existingOpt = githubInstallationRepository.findByGithubInstallationId(installationId);
+
+        if (existingOpt.isPresent()) {
+            GithubInstallation existing = existingOpt.get();
+            if (existing.getUser() != null && existing.getUser().getId().equals(currentUser.getId())) {
+                return githubInstallationMapper.toResponse(existing);
+            } else {
+                throw new DuplicateResourceException("GitHub installation ID " + installationId + " is already registered to another user");
+            }
+        }
+
+        String accountType = request.getGithubAccountType();
+
+        GithubInstallation installation = new GithubInstallation(
+                currentUser,
+                installationId,
+                request.getGithubAccountLogin(),
+                accountType
+        );
+
+        GithubInstallation savedInstallation = githubInstallationRepository.save(installation);
+        return githubInstallationMapper.toResponse(savedInstallation);
+    }
+
+    @Transactional
     public GithubInstallationResponse createInstallation(GithubInstallationCreateRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("Request body must not be null");
@@ -54,8 +94,14 @@ public class GithubInstallationService {
             throw new IllegalArgumentException("User must be specified or authenticated");
         }
 
-        if (githubInstallationRepository.existsByGithubInstallationId(request.getGithubInstallationId())) {
-            throw new DuplicateResourceException("GitHub installation with ID " + request.getGithubInstallationId() + " already exists");
+        Optional<GithubInstallation> existingOpt = githubInstallationRepository.findByGithubInstallationId(request.getGithubInstallationId());
+        if (existingOpt.isPresent()) {
+            GithubInstallation existing = existingOpt.get();
+            if (existing.getUser() != null && existing.getUser().getId().equals(user.getId())) {
+                return githubInstallationMapper.toResponse(existing);
+            } else {
+                throw new DuplicateResourceException("GitHub installation ID " + request.getGithubInstallationId() + " is already registered to another user");
+            }
         }
 
         GithubInstallation installation = githubInstallationMapper.toEntity(request, user);
