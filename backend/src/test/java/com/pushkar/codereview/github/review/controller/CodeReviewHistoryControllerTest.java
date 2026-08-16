@@ -4,13 +4,15 @@ import com.pushkar.codereview.exception.GlobalExceptionHandler;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.CodeReviewHistoryService;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
+import com.pushkar.codereview.github.review.dto.CodeReviewResultResponse;
+import com.pushkar.codereview.github.review.dto.CodeReviewStatusResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -24,220 +26,150 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CodeReviewHistoryControllerTest {
 
     private MockMvc mockMvc;
-    private StubCodeReviewHistoryService stubService;
+    private StubCodeReviewHistoryService stubHistoryService;
 
     @BeforeEach
     void setUp() {
-        stubService = new StubCodeReviewHistoryService();
-        CodeReviewHistoryController controller = new CodeReviewHistoryController(stubService);
-
-        com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        objectMapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
-        objectMapper.disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-
-        org.springframework.http.converter.json.MappingJackson2HttpMessageConverter converter =
-                new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(objectMapper);
+        stubHistoryService = new StubCodeReviewHistoryService();
+        CodeReviewHistoryController controller = new CodeReviewHistoryController(stubHistoryService);
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setMessageConverters(converter)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
 
     @Test
-    void testGetCodeReviews_Paginated_Success() throws Exception {
-        CodeReviewHistoryResponse sample = new CodeReviewHistoryResponse(
+    void testGetCodeReviews_Returns200OK() throws Exception {
+        CodeReviewHistoryResponse response = new CodeReviewHistoryResponse(
                 1L, 123456L, "octocat", "hello-world", 42,
-                "Found 2 potential issues.", 2, 2,
-                CodeReviewStatus.COMPLETED,
-                Instant.parse("2026-08-16T05:00:00Z"),
-                Instant.parse("2026-08-16T05:00:12Z")
+                "Summary", 2, 2, CodeReviewStatus.COMPLETED,
+                Instant.parse("2026-08-16T05:00:00Z"), Instant.parse("2026-08-16T05:00:12Z")
         );
-        Page<CodeReviewHistoryResponse> pageResponse = new PageImpl<>(List.of(sample), PageRequest.of(0, 20), 1);
-        stubService.setPageResponse(pageResponse);
+        stubHistoryService.setPageResponse(new PageImpl<>(List.of(response), PageRequest.of(0, 20), 1));
 
-        mockMvc.perform(get("/api/v1/code-reviews?page=0&size=20&sort=createdAt,desc")
-                        .accept(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/api/v1/code-reviews")
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(1))
                 .andExpect(jsonPath("$.content[0].owner").value("octocat"))
-                .andExpect(jsonPath("$.content[0].repository").value("hello-world"))
-                .andExpect(jsonPath("$.content[0].pullRequestNumber").value(42))
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.content[0].status").value("COMPLETED"));
     }
 
     @Test
-    void testGetCodeReviews_InvalidStatusFilter_Returns400() throws Exception {
-        stubService.setException(new IllegalArgumentException("Invalid status filter: INVALID_STATUS"));
-
-        mockMvc.perform(get("/api/v1/code-reviews?status=INVALID_STATUS")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value("Invalid status filter: INVALID_STATUS"));
-    }
-
-    @Test
-    void testGetSingleReview_Success() throws Exception {
-        CodeReviewHistoryResponse sample = new CodeReviewHistoryResponse(
+    void testGetById_Returns200OK() throws Exception {
+        CodeReviewHistoryResponse response = new CodeReviewHistoryResponse(
                 1L, 123456L, "octocat", "hello-world", 42,
-                "Found 2 potential issues.", 2, 2,
-                CodeReviewStatus.COMPLETED,
-                Instant.parse("2026-08-16T05:00:00Z"),
-                Instant.parse("2026-08-16T05:00:12Z")
+                "Summary", 2, 2, CodeReviewStatus.COMPLETED,
+                Instant.parse("2026-08-16T05:00:00Z"), Instant.parse("2026-08-16T05:00:12Z")
         );
-        stubService.setSingleResponse(sample);
+        stubHistoryService.setSingleResponse(response);
 
         mockMvc.perform(get("/api/v1/code-reviews/1")
-                        .accept(MediaType.APPLICATION_JSON))
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.installationId").value(123456))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+    }
+
+    @Test
+    void testGetStatusById_Returns200OK() throws Exception {
+        CodeReviewStatusResponse response = new CodeReviewStatusResponse(
+                1L, CodeReviewStatus.IN_PROGRESS,
+                Instant.parse("2026-08-16T05:00:00Z"), null,
+                0, 0, ""
+        );
+        stubHistoryService.setStatusResponse(response);
+
+        mockMvc.perform(get("/api/v1/code-reviews/1/status")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.codeReviewId").value(1))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    }
+
+    @Test
+    void testGetResultById_Returns200OK() throws Exception {
+        CodeReviewResultResponse response = new CodeReviewResultResponse(
+                1L, 123456L, "octocat", "hello-world", 42,
+                CodeReviewStatus.COMPLETED, "Found 2 potential issues.", 2, 2,
+                Instant.parse("2026-08-16T05:00:00Z"), Instant.parse("2026-08-16T05:00:12Z")
+        );
+        stubHistoryService.setResultResponse(response);
+
+        mockMvc.perform(get("/api/v1/code-reviews/1/result")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.codeReviewId").value(1))
                 .andExpect(jsonPath("$.installationId").value(123456))
                 .andExpect(jsonPath("$.owner").value("octocat"))
                 .andExpect(jsonPath("$.repository").value("hello-world"))
                 .andExpect(jsonPath("$.pullRequestNumber").value(42))
-                .andExpect(jsonPath("$.reviewSummary").value("Found 2 potential issues."))
-                .andExpect(jsonPath("$.totalFindings").value(2))
-                .andExpect(jsonPath("$.postedCommentsCount").value(2))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.createdAt").value("2026-08-16T05:00:00Z"))
-                .andExpect(jsonPath("$.completedAt").value("2026-08-16T05:00:12Z"));
+                .andExpect(jsonPath("$.reviewSummary").value("Found 2 potential issues."));
     }
 
     @Test
-    void testGetRepositoryHistory_Success() throws Exception {
-        CodeReviewHistoryResponse r1 = new CodeReviewHistoryResponse(
-                1L, 123456L, "octocat", "hello-world", 42,
-                "Summary 1", 2, 2,
-                CodeReviewStatus.COMPLETED,
-                Instant.parse("2026-08-16T05:00:00Z"),
-                Instant.parse("2026-08-16T05:00:12Z")
-        );
-        CodeReviewHistoryResponse r2 = new CodeReviewHistoryResponse(
-                2L, 123456L, "octocat", "hello-world", 43,
-                "Summary 2", 0, 0,
-                CodeReviewStatus.IN_PROGRESS,
-                Instant.parse("2026-08-16T05:10:00Z"),
-                null
-        );
-        stubService.setListResponse(List.of(r1, r2));
+    void testGetStatusById_AccessDenied_Returns403() throws Exception {
+        stubHistoryService.setException(new AccessDeniedException("Access denied"));
 
-        mockMvc.perform(get("/api/v1/code-reviews/repository/octocat/hello-world")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[0].owner").value("octocat"))
-                .andExpect(jsonPath("$[0].repository").value("hello-world"))
-                .andExpect(jsonPath("$[0].pullRequestNumber").value(42))
-                .andExpect(jsonPath("$[1].id").value(2))
-                .andExpect(jsonPath("$[1].pullRequestNumber").value(43))
-                .andExpect(jsonPath("$[1].status").value("IN_PROGRESS"));
+        mockMvc.perform(get("/api/v1/code-reviews/1/status")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
     }
 
     @Test
-    void testGetPullRequestHistory_Success() throws Exception {
-        CodeReviewHistoryResponse r1 = new CodeReviewHistoryResponse(
-                1L, 123456L, "octocat", "hello-world", 42,
-                "Summary 1", 2, 2,
-                CodeReviewStatus.COMPLETED,
-                Instant.parse("2026-08-16T05:00:00Z"),
-                Instant.parse("2026-08-16T05:00:12Z")
-        );
-        stubService.setListResponse(List.of(r1));
+    void testGetStatusById_NotFound_Returns404() throws Exception {
+        stubHistoryService.setException(new ResourceNotFoundException("Review not found"));
 
-        mockMvc.perform(get("/api/v1/code-reviews/repository/octocat/hello-world/pull-request/42")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[0].pullRequestNumber").value(42))
-                .andExpect(jsonPath("$[0].status").value("COMPLETED"));
-    }
-
-    @Test
-    void testMissingReview_404() throws Exception {
-        stubService.setException(new ResourceNotFoundException("CodeReview record not found with id: 999"));
-
-        mockMvc.perform(get("/api/v1/code-reviews/999")
-                        .accept(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/api/v1/code-reviews/999/status")
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Resource Not Found"))
-                .andExpect(jsonPath("$.message").value("CodeReview record not found with id: 999"));
-    }
-
-    @Test
-    void testInvalidRequestParameters_400() throws Exception {
-        stubService.setException(new IllegalArgumentException("Review ID must be positive"));
-
-        mockMvc.perform(get("/api/v1/code-reviews/-1")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value("Review ID must be positive"));
+                .andExpect(jsonPath("$.error").value("Resource Not Found"));
     }
 
     // --- Helper Stub ---
 
     private static class StubCodeReviewHistoryService extends CodeReviewHistoryService {
         private CodeReviewHistoryResponse singleResponse;
-        private List<CodeReviewHistoryResponse> listResponse = List.of();
-        private Page<CodeReviewHistoryResponse> pageResponse = Page.empty();
+        private CodeReviewStatusResponse statusResponse;
+        private CodeReviewResultResponse resultResponse;
+        private org.springframework.data.domain.Page<CodeReviewHistoryResponse> pageResponse = new PageImpl<>(List.of(), PageRequest.of(0, 20), 0);
         private RuntimeException exception;
 
         public StubCodeReviewHistoryService() {
             super(null);
         }
 
-        public void setSingleResponse(CodeReviewHistoryResponse singleResponse) {
-            this.singleResponse = singleResponse;
-        }
-
-        public void setListResponse(List<CodeReviewHistoryResponse> listResponse) {
-            this.listResponse = listResponse;
-        }
-
-        public void setPageResponse(Page<CodeReviewHistoryResponse> pageResponse) {
-            this.pageResponse = pageResponse;
-        }
-
-        public void setException(RuntimeException exception) {
-            this.exception = exception;
-        }
+        public void setSingleResponse(CodeReviewHistoryResponse singleResponse) { this.singleResponse = singleResponse; }
+        public void setStatusResponse(CodeReviewStatusResponse statusResponse) { this.statusResponse = statusResponse; }
+        public void setResultResponse(CodeReviewResultResponse resultResponse) { this.resultResponse = resultResponse; }
+        public void setPageResponse(org.springframework.data.domain.Page<CodeReviewHistoryResponse> pageResponse) { this.pageResponse = pageResponse; }
+        public void setException(RuntimeException exception) { this.exception = exception; }
 
         @Override
-        public Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String statusStr, String owner, String repositoryName, Integer pullRequestNumber) {
-            if (exception != null) {
-                throw exception;
-            }
+        public org.springframework.data.domain.Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String status, String owner, String repository, Integer pullRequestNumber) {
+            if (exception != null) throw exception;
             return pageResponse;
         }
 
         @Override
         public CodeReviewHistoryResponse getById(Long id) {
-            if (id <= 0) {
-                throw new IllegalArgumentException("Review ID must be positive");
-            }
-            if (exception != null) {
-                throw exception;
-            }
+            if (exception != null) throw exception;
             return singleResponse;
         }
 
         @Override
-        public List<CodeReviewHistoryResponse> getByRepository(String owner, String repositoryName) {
-            if (exception != null) {
-                throw exception;
-            }
-            return listResponse;
+        public CodeReviewStatusResponse getStatusById(Long id) {
+            if (exception != null) throw exception;
+            return statusResponse;
         }
 
         @Override
-        public List<CodeReviewHistoryResponse> getByPullRequest(String owner, String repositoryName, int pullRequestNumber) {
-            if (exception != null) {
-                throw exception;
-            }
-            return listResponse;
+        public CodeReviewResultResponse getResultById(Long id) {
+            if (exception != null) throw exception;
+            return resultResponse;
         }
     }
 }

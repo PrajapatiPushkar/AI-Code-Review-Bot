@@ -2,6 +2,8 @@ package com.pushkar.codereview.github.review;
 
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
+import com.pushkar.codereview.github.review.dto.CodeReviewResultResponse;
+import com.pushkar.codereview.github.review.dto.CodeReviewStatusResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewRepository;
 import com.pushkar.codereview.github.review.persistence.CodeReviewSpecification;
@@ -74,23 +76,38 @@ public class CodeReviewHistoryService {
     }
 
     public CodeReviewHistoryResponse getById(Long id) {
-        if (id == null || id <= 0) {
-            throw new IllegalArgumentException("Review ID must be positive");
-        }
-
-        CodeReview review = repository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("CodeReview record not found with id: " + id));
-
-        if (currentUserService != null && currentUserService.isAuthenticated()) {
-            if (!currentUserService.hasRole("ADMIN")) {
-                Long currentUserId = currentUserService.getCurrentUserId();
-                if (review.getUser() != null && !review.getUser().getId().equals(currentUserId)) {
-                    throw new AccessDeniedException("You do not have permission to access this code review");
-                }
-            }
-        }
-
+        CodeReview review = findAndAuthorizeReview(id);
         return mapToResponse(review);
+    }
+
+    public CodeReviewStatusResponse getStatusById(Long id) {
+        CodeReview review = findAndAuthorizeReview(id);
+        return new CodeReviewStatusResponse(
+                review.getId(),
+                review.getStatus(),
+                review.getCreatedAt(),
+                review.getCompletedAt(),
+                review.getTotalFindings(),
+                review.getPostedCommentsCount(),
+                review.getReviewSummary()
+        );
+    }
+
+    public CodeReviewResultResponse getResultById(Long id) {
+        CodeReview review = findAndAuthorizeReview(id);
+        return new CodeReviewResultResponse(
+                review.getId(),
+                review.getInstallationId(),
+                review.getOwner(),
+                review.getRepository(),
+                review.getPullRequestNumber(),
+                review.getStatus(),
+                review.getReviewSummary(),
+                review.getTotalFindings(),
+                review.getPostedCommentsCount(),
+                review.getCreatedAt(),
+                review.getCompletedAt()
+        );
     }
 
     public List<CodeReviewHistoryResponse> getByRepository(String owner, String repositoryName) {
@@ -140,6 +157,26 @@ public class CodeReviewHistoryService {
         return reviews.stream()
                 .map(this::mapToResponse)
                 .toList();
+    }
+
+    private CodeReview findAndAuthorizeReview(Long id) {
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException("Review ID must be positive");
+        }
+
+        CodeReview review = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("CodeReview record not found with id: " + id));
+
+        if (currentUserService != null && currentUserService.isAuthenticated()) {
+            if (!currentUserService.hasRole("ADMIN")) {
+                Long currentUserId = currentUserService.getCurrentUserId();
+                if (review.getUser() != null && !review.getUser().getId().equals(currentUserId)) {
+                    throw new AccessDeniedException("You do not have permission to access this code review");
+                }
+            }
+        }
+
+        return review;
     }
 
     private Sort parseSort(String sortParam) {
