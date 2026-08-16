@@ -1,0 +1,16 @@
+target/
+.git/
+.gitignore
+.idea/
+*.iml
+.mvn/
+logs/
+tmp/
+temp/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+README.md
