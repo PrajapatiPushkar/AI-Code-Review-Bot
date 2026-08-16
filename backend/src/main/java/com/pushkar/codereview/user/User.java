@@ -20,7 +20,7 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "github_id", nullable = false, unique = true)
+    @Column(name = "github_id", unique = true)
     private Long githubId;
 
     @Column(name = "username", nullable = false, unique = true)
@@ -32,8 +32,14 @@ public class User {
     @Column(name = "avatar_url", length = 512)
     private String avatarUrl;
 
+    @Column(name = "password_hash")
+    private String passwordHash;
+
     @Column(name = "role", nullable = false)
-    private String role = "DEVELOPER";
+    private String role = "USER";
+
+    @Column(name = "enabled", nullable = false)
+    private Boolean enabled = true;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -54,11 +60,24 @@ public class User {
         }
     }
 
+    public User(String username, String email, String passwordHash, String role) {
+        this.username = username;
+        this.email = email;
+        this.passwordHash = passwordHash;
+        if (role != null && !role.isBlank()) {
+            this.role = role;
+        }
+        this.enabled = true;
+    }
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();
         this.createdAt = now;
         this.updatedAt = now;
+        if (this.enabled == null) {
+            this.enabled = true;
+        }
     }
 
     @PreUpdate
@@ -106,12 +125,28 @@ public class User {
         this.avatarUrl = avatarUrl;
     }
 
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
     public String getRole() {
         return role;
     }
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public Boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
     }
 
     public Instant getCreatedAt() {
@@ -135,11 +170,13 @@ public class User {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         User user = (User) o;
-        return Objects.equals(id, user.id) || Objects.equals(githubId, user.githubId);
+        return Objects.equals(id, user.id) ||
+                (githubId != null && Objects.equals(githubId, user.githubId)) ||
+                (email != null && Objects.equals(email, user.email));
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, githubId);
+        return Objects.hash(id, githubId, email);
     }
 }
