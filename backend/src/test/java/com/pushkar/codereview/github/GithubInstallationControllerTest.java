@@ -4,6 +4,7 @@ import com.pushkar.codereview.config.JwtProperties;
 import com.pushkar.codereview.config.SecurityConfig;
 import com.pushkar.codereview.exception.DuplicateResourceException;
 import com.pushkar.codereview.exception.GlobalExceptionHandler;
+import com.pushkar.codereview.exception.GithubInstallationVerificationException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
@@ -74,7 +75,7 @@ class GithubInstallationControllerTest {
     }
 
     @Test
-    void testRegisterInstallation_Success_Returns201() throws Exception {
+    void testRegisterInstallation_Success_Returns201WithVerifiedFields() throws Exception {
         String token = jwtService.generateToken("user@example.com", "USER");
 
         mockMvc.perform(post("/api/v1/github/installations")
@@ -84,7 +85,22 @@ class GithubInstallationControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.githubInstallationId").value(123456))
-                .andExpect(jsonPath("$.githubAccountLogin").value("octocat"));
+                .andExpect(jsonPath("$.githubAccountLogin").value("octocat"))
+                .andExpect(jsonPath("$.verified").value(true))
+                .andExpect(jsonPath("$.verifiedAt").exists());
+    }
+
+    @Test
+    void testRegisterInstallation_VerificationFailure_Returns422() throws Exception {
+        String token = jwtService.generateToken("user@example.com", "USER");
+        installationService.setVerificationFailureForId(77777L);
+
+        mockMvc.perform(post("/api/v1/github/installations")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installationId\":77777,\"githubAccountLogin\":\"fake-login\",\"githubAccountType\":\"User\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error").value("GitHub Installation Verification Failed"));
     }
 
     @Test
@@ -212,6 +228,7 @@ class GithubInstallationControllerTest {
     private static class StubGithubInstallationService extends GithubInstallationService {
         private Long accessDeniedId;
         private Long conflictInstallationId;
+        private Long verificationFailureId;
 
         public StubGithubInstallationService() {
             super(null, null, null, null);
@@ -225,9 +242,14 @@ class GithubInstallationControllerTest {
             this.conflictInstallationId = installationId;
         }
 
+        public void setVerificationFailureForId(Long installationId) {
+            this.verificationFailureId = installationId;
+        }
+
         public void clear() {
             this.accessDeniedId = null;
             this.conflictInstallationId = null;
+            this.verificationFailureId = null;
         }
 
         @Override
@@ -235,12 +257,15 @@ class GithubInstallationControllerTest {
             if (request.getInstallationId().equals(conflictInstallationId)) {
                 throw new DuplicateResourceException("GitHub installation ID " + request.getInstallationId() + " is already registered to another user");
             }
-            return new GithubInstallationResponse(1L, 1L, request.getInstallationId(), request.getGithubAccountLogin(), request.getGithubAccountType(), Instant.now(), Instant.now());
+            if (request.getInstallationId().equals(verificationFailureId)) {
+                throw new GithubInstallationVerificationException("GitHub account login mismatch");
+            }
+            return new GithubInstallationResponse(1L, 1L, request.getInstallationId(), request.getGithubAccountLogin(), request.getGithubAccountType(), true, Instant.now(), Instant.now(), Instant.now());
         }
 
         @Override
         public List<GithubInstallationResponse> getInstallationsForCurrentUser() {
-            return List.of(new GithubInstallationResponse(1L, 1L, 123456L, "octocat", "User", Instant.now(), Instant.now()));
+            return List.of(new GithubInstallationResponse(1L, 1L, 123456L, "octocat", "User", true, Instant.now(), Instant.now(), Instant.now()));
         }
 
         @Override
@@ -251,7 +276,7 @@ class GithubInstallationControllerTest {
             if (id.equals(accessDeniedId)) {
                 throw new AccessDeniedException("You do not have permission to access this installation");
             }
-            return new GithubInstallationResponse(id, 1L, 123456L, "octocat", "User", Instant.now(), Instant.now());
+            return new GithubInstallationResponse(id, 1L, 123456L, "octocat", "User", true, Instant.now(), Instant.now(), Instant.now());
         }
 
         @Override

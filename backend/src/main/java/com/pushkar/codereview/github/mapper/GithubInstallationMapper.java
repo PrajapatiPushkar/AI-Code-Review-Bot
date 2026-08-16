@@ -35,6 +35,8 @@ public class GithubInstallationMapper {
                 entity.getGithubInstallationId(),
                 entity.getGithubAccountLogin(),
                 entity.getGithubAccountType(),
+                entity.isVerified(),
+                entity.getVerifiedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

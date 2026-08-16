@@ -90,6 +90,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 
+    @ExceptionHandler(GithubInstallationVerificationException.class)
+    public ResponseEntity<Map<String, Object>> handleGithubInstallationVerificationException(GithubInstallationVerificationException ex) {
+        Map<String, Object> response = Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "error", "GitHub Installation Verification Failed",
+                "message", ex.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
+    }
+
     @ExceptionHandler(GithubApiException.class)
     public ResponseEntity<Map<String, Object>> handleGithubApiException(GithubApiException ex) {
         HttpStatus status = ex.getStatusCode() > 0 ? HttpStatus.resolve(ex.getStatusCode()) : null;

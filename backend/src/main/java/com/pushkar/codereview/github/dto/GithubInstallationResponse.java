@@ -9,6 +9,8 @@ public class GithubInstallationResponse {
     private Long githubInstallationId;
     private String githubAccountLogin;
     private String githubAccountType;
+    private boolean verified;
+    private Instant verifiedAt;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -16,11 +18,17 @@ public class GithubInstallationResponse {
     }
 
     public GithubInstallationResponse(Long id, Long userId, Long githubInstallationId, String githubAccountLogin, String githubAccountType, Instant createdAt, Instant updatedAt) {
+        this(id, userId, githubInstallationId, githubAccountLogin, githubAccountType, false, null, createdAt, updatedAt);
+    }
+
+    public GithubInstallationResponse(Long id, Long userId, Long githubInstallationId, String githubAccountLogin, String githubAccountType, boolean verified, Instant verifiedAt, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.userId = userId;
         this.githubInstallationId = githubInstallationId;
         this.githubAccountLogin = githubAccountLogin;
         this.githubAccountType = githubAccountType;
+        this.verified = verified;
+        this.verifiedAt = verifiedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -63,6 +71,22 @@ public class GithubInstallationResponse {
 
     public void setGithubAccountType(String githubAccountType) {
         this.githubAccountType = githubAccountType;
+    }
+
+    public boolean isVerified() {
+        return verified;
+    }
+
+    public void setVerified(boolean verified) {
+        this.verified = verified;
+    }
+
+    public Instant getVerifiedAt() {
+        return verifiedAt;
+    }
+
+    public void setVerifiedAt(Instant verifiedAt) {
+        this.verifiedAt = verifiedAt;
     }
 
     public Instant getCreatedAt() {

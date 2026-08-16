@@ -37,6 +37,12 @@ public class GithubInstallation {
     @Column(name = "github_account_type", nullable = false, length = 50)
     private String githubAccountType;
 
+    @Column(name = "verified", nullable = false)
+    private boolean verified = false;
+
+    @Column(name = "verified_at")
+    private Instant verifiedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -95,6 +101,22 @@ public class GithubInstallation {
 
     public void setGithubAccountLogin(String githubAccountLogin) {
         this.githubAccountLogin = githubAccountLogin;
+    }
+
+    public boolean isVerified() {
+        return verified;
+    }
+
+    public void setVerified(boolean verified) {
+        this.verified = verified;
+    }
+
+    public Instant getVerifiedAt() {
+        return verifiedAt;
+    }
+
+    public void setVerifiedAt(Instant verifiedAt) {
+        this.verifiedAt = verifiedAt;
     }
 
     public String getGithubAccountType() {

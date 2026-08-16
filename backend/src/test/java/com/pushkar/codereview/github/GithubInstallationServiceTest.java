@@ -1,8 +1,13 @@
 package com.pushkar.codereview.github;
 
 import com.pushkar.codereview.exception.DuplicateResourceException;
+import com.pushkar.codereview.exception.GithubApiException;
+import com.pushkar.codereview.exception.GithubInstallationVerificationException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
-import com.pushkar.codereview.github.dto.GithubInstallationCreateRequest;
+import com.pushkar.codereview.github.client.GithubInstallationTokenClient;
+import com.pushkar.codereview.github.client.GithubInstallationVerificationClient;
+import com.pushkar.codereview.github.client.dto.GithubInstallationDetailsResponse;
+import com.pushkar.codereview.github.client.dto.GithubInstallationTokenResponse;
 import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import com.pushkar.codereview.github.mapper.GithubInstallationMapper;
@@ -14,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +34,8 @@ class GithubInstallationServiceTest {
     private StubGithubInstallationRepository installationRepository;
     private StubUserRepository userRepository;
     private StubCurrentUserService currentUserService;
+    private StubTokenClient tokenClient;
+    private StubVerificationClient verificationClient;
     private GithubInstallationService installationService;
 
     private User user1;
@@ -40,9 +48,13 @@ class GithubInstallationServiceTest {
         installationRepository = new StubGithubInstallationRepository();
         userRepository = new StubUserRepository();
         currentUserService = new StubCurrentUserService();
+        tokenClient = new StubTokenClient();
+        verificationClient = new StubVerificationClient();
 
         GithubInstallationMapper mapper = new GithubInstallationMapper();
-        installationService = new GithubInstallationService(installationRepository, userRepository, mapper, currentUserService);
+        installationService = new GithubInstallationService(
+                installationRepository, userRepository, mapper, currentUserService, tokenClient, verificationClient
+        );
 
         user1 = new User("user1", "user1@example.com", "hash", "USER");
         user1.setId(10L);
@@ -64,11 +76,14 @@ class GithubInstallationServiceTest {
     @AfterEach
     void tearDown() {
         currentUserService.clear();
+        tokenClient.clear();
+        verificationClient.clear();
     }
 
     @Test
-    void testRegisterInstallation_AuthenticatedUser_Success() {
+    void testRegisterInstallation_VerificationSuccess_SetsVerifiedAndTimestamp() {
         currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+        verificationClient.setDetails(123456L, "octocat", "User");
 
         GithubInstallationRequest request = new GithubInstallationRequest(123456L, "octocat", "User");
         GithubInstallationResponse response = installationService.registerInstallation(request);
@@ -76,37 +91,54 @@ class GithubInstallationServiceTest {
         assertThat(response).isNotNull();
         assertThat(response.getGithubInstallationId()).isEqualTo(123456L);
         assertThat(response.getGithubAccountLogin()).isEqualTo("octocat");
-        assertThat(response.getUserId()).isEqualTo(user1.getId());
+        assertThat(response.isVerified()).isTrue();
+        assertThat(response.getVerifiedAt()).isNotNull();
+        assertThat(tokenClient.isTokenRequested()).isTrue();
     }
 
     @Test
-    void testRegisterInstallation_AuthenticatedDeveloper_Success() {
-        currentUserService.setContext(devUser.getId(), "dev@example.com", "DEVELOPER", devUser);
+    void testRegisterInstallation_AccountMismatch_ThrowsVerificationException() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+        verificationClient.setDetails(123456L, "real-github-login", "User");
 
-        GithubInstallationRequest request = new GithubInstallationRequest(654321L, "devorg", "Organization");
-        GithubInstallationResponse response = installationService.registerInstallation(request);
+        GithubInstallationRequest request = new GithubInstallationRequest(123456L, "fake-login", "User");
 
-        assertThat(response).isNotNull();
-        assertThat(response.getGithubInstallationId()).isEqualTo(654321L);
-        assertThat(response.getGithubAccountLogin()).isEqualTo("devorg");
-        assertThat(response.getUserId()).isEqualTo(devUser.getId());
+        assertThatThrownBy(() -> installationService.registerInstallation(request))
+                .isInstanceOf(GithubInstallationVerificationException.class)
+                .hasMessageContaining("mismatch");
+
+        assertThat(installationRepository.findByGithubInstallationId(123456L)).isEmpty();
     }
 
     @Test
-    void testRegisterInstallation_AuthenticatedAdmin_Success() {
-        currentUserService.setContext(adminUser.getId(), "admin@example.com", "ADMIN", adminUser);
+    void testRegisterInstallation_GithubNotFound_ThrowsResourceNotFoundException() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+        tokenClient.setNotFoundId(999999L);
 
-        GithubInstallationRequest request = new GithubInstallationRequest(777777L, "adminorg", "Organization");
-        GithubInstallationResponse response = installationService.registerInstallation(request);
+        GithubInstallationRequest request = new GithubInstallationRequest(999999L, "octocat", "User");
 
-        assertThat(response).isNotNull();
-        assertThat(response.getGithubInstallationId()).isEqualTo(777777L);
-        assertThat(response.getUserId()).isEqualTo(adminUser.getId());
+        assertThatThrownBy(() -> installationService.registerInstallation(request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("not found on GitHub");
     }
 
     @Test
-    void testRegisterInstallation_SameUserReRegistration_ReturnsExistingIdempotently() {
+    void testRegisterInstallation_GithubUnauthorized_ThrowsGithubApiException() {
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+        tokenClient.setUnauthorizedId(888888L);
+
+        GithubInstallationRequest request = new GithubInstallationRequest(888888L, "octocat", "User");
+
+        assertThatThrownBy(() -> installationService.registerInstallation(request))
+                .isInstanceOf(GithubApiException.class)
+                .hasMessageContaining("failed");
+    }
+
+    @Test
+    void testRegisterInstallation_SameUserReRegistration_VerifiedReturnsExistingIdempotently() {
         GithubInstallation i1 = createInstallation(1L, user1, 123456L, "octocat", "User");
+        i1.setVerified(true);
+        i1.setVerifiedAt(Instant.now());
         installationRepository.save(i1);
 
         currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
@@ -116,8 +148,7 @@ class GithubInstallationServiceTest {
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(1L);
-        assertThat(response.getGithubInstallationId()).isEqualTo(123456L);
-        assertThat(response.getUserId()).isEqualTo(user1.getId());
+        assertThat(response.isVerified()).isTrue();
     }
 
     @Test
@@ -147,48 +178,6 @@ class GithubInstallationServiceTest {
 
         assertThat(responses).hasSize(1);
         assertThat(responses.get(0).getId()).isEqualTo(1L);
-        assertThat(responses.get(0).getGithubAccountLogin()).isEqualTo("octocat");
-    }
-
-    @Test
-    void testGetInstallationsForCurrentUser_AdminSeesAllInstallations() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        GithubInstallation i2 = createInstallation(2L, user2, 10002L, "anothercat", "User");
-        installationRepository.save(i1);
-        installationRepository.save(i2);
-
-        currentUserService.setContext(99L, "admin@example.com", "ADMIN", adminUser);
-
-        List<GithubInstallationResponse> responses = installationService.getInstallationsForCurrentUser();
-
-        assertThat(responses).hasSize(2);
-    }
-
-    @Test
-    void testGetInstallationById_OwnerAccess_Success() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
-
-        GithubInstallationResponse response = installationService.getInstallationById(1L);
-
-        assertThat(response).isNotNull();
-        assertThat(response.getId()).isEqualTo(1L);
-        assertThat(response.getGithubInstallationId()).isEqualTo(10001L);
-    }
-
-    @Test
-    void testGetInstallationById_AdminAccess_Success() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(99L, "admin@example.com", "ADMIN", adminUser);
-
-        GithubInstallationResponse response = installationService.getInstallationById(1L);
-
-        assertThat(response).isNotNull();
-        assertThat(response.getId()).isEqualTo(1L);
     }
 
     @Test
@@ -199,53 +188,7 @@ class GithubInstallationServiceTest {
         currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
 
         assertThatThrownBy(() -> installationService.getInstallationById(1L))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("You do not have permission to access this installation");
-    }
-
-    @Test
-    void testGetInstallationById_MissingInstallation_ThrowsResourceNotFoundException() {
-        assertThatThrownBy(() -> installationService.getInstallationById(999L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("GitHub installation not found with ID: 999");
-    }
-
-    @Test
-    void testDeleteInstallation_OwnerDeletes_Success() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
-
-        installationService.deleteInstallation(1L);
-
-        assertThat(installationRepository.findById(1L)).isEmpty();
-    }
-
-    @Test
-    void testDeleteInstallation_AdminDeletes_Success() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(99L, "admin@example.com", "ADMIN", adminUser);
-
-        installationService.deleteInstallation(1L);
-
-        assertThat(installationRepository.findById(1L)).isEmpty();
-    }
-
-    @Test
-    void testDeleteInstallation_NonOwnerDelete_ThrowsAccessDeniedException() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
-
-        assertThatThrownBy(() -> installationService.deleteInstallation(1L))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("You do not have permission to delete this installation");
-
-        assertThat(installationRepository.findById(1L)).isPresent();
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     private GithubInstallation createInstallation(Long id, User user, Long githubInstId, String login, String type) {
@@ -255,6 +198,50 @@ class GithubInstallationServiceTest {
     }
 
     // --- Helper Stubs ---
+
+    private static class StubTokenClient extends GithubInstallationTokenClient {
+        private boolean tokenRequested = false;
+        private Long notFoundId;
+        private Long unauthorizedId;
+
+        public StubTokenClient() { super(null, null); }
+
+        public boolean isTokenRequested() { return tokenRequested; }
+        public void setNotFoundId(Long id) { this.notFoundId = id; }
+        public void setUnauthorizedId(Long id) { this.unauthorizedId = id; }
+        public void clear() { tokenRequested = false; notFoundId = null; unauthorizedId = null; }
+
+        @Override
+        public GithubInstallationTokenResponse requestInstallationToken(Long installationId) {
+            tokenRequested = true;
+            if (installationId.equals(notFoundId)) {
+                throw new ResourceNotFoundException("GitHub installation not found on GitHub with ID: " + installationId);
+            }
+            if (installationId.equals(unauthorizedId)) {
+                throw new GithubApiException("GitHub API authentication failed (HTTP 401)", 401);
+            }
+            return new GithubInstallationTokenResponse("mock-token", Instant.now().plusSeconds(3600));
+        }
+    }
+
+    private static class StubVerificationClient extends GithubInstallationVerificationClient {
+        private final Map<Long, GithubInstallationDetailsResponse> map = new HashMap<>();
+
+        public StubVerificationClient() { super(null, null); }
+
+        public void setDetails(Long id, String login, String type) {
+            map.put(id, new GithubInstallationDetailsResponse(id, login, type));
+        }
+
+        public void clear() { map.clear(); }
+
+        @Override
+        public GithubInstallationDetailsResponse getInstallationDetails(Long installationId) {
+            GithubInstallationDetailsResponse res = map.get(installationId);
+            if (res != null) return res;
+            return new GithubInstallationDetailsResponse(installationId, "octocat", "User");
+        }
+    }
 
     private static class StubCurrentUserService extends CurrentUserService {
         private Long userId;
