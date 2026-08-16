@@ -76,6 +76,21 @@ class DockerConfigurationVerificationTest {
         assertThat(content).contains(".env");
     }
 
+    @Test
+    void testProductionDockerComposeConfiguration() throws Exception {
+        Path prodComposePath = findFilePath("docker-compose.prod.yml");
+        assertThat(prodComposePath).isNotNull().exists();
+
+        String content = Files.readString(prodComposePath);
+
+        // Verify production profile override
+        assertThat(content).contains("SPRING_PROFILES_ACTIVE: prod");
+
+        // Verify production security: postgres port 5432 is not exposed on host
+        assertThat(content).contains("ports: []");
+        assertThat(content).contains("restart: always");
+    }
+
     private Path findFilePath(String relativePath) {
         Path direct = Paths.get(relativePath);
         if (Files.exists(direct)) {
