@@ -2,7 +2,7 @@ package com.pushkar.codereview.github.review.controller;
 
 import com.pushkar.codereview.github.review.GithubPullRequestCodeReviewService;
 import com.pushkar.codereview.github.review.dto.CodeReviewExecutionResult;
-import com.pushkar.codereview.github.review.dto.CodeReviewRequest;
+import com.pushkar.codereview.github.review.dto.GithubPullRequestReviewRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +21,7 @@ public class CodeReviewController {
     }
 
     @PostMapping("/pull-request")
-    public ResponseEntity<CodeReviewExecutionResult> reviewPullRequest(@Valid @RequestBody CodeReviewRequest request) {
+    public ResponseEntity<CodeReviewExecutionResult> reviewPullRequest(@Valid @RequestBody GithubPullRequestReviewRequest request) {
         CodeReviewExecutionResult result = codeReviewService.executeCodeReview(
                 request.getInstallationId(),
                 request.getOwner(),

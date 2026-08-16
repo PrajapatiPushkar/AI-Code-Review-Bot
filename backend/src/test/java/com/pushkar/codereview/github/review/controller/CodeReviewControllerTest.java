@@ -3,10 +3,11 @@ package com.pushkar.codereview.github.review.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pushkar.codereview.exception.GlobalExceptionHandler;
 import com.pushkar.codereview.exception.GithubApiException;
+import com.pushkar.codereview.exception.GithubInstallationVerificationException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.GithubPullRequestCodeReviewService;
 import com.pushkar.codereview.github.review.dto.CodeReviewExecutionResult;
-import com.pushkar.codereview.github.review.dto.CodeReviewRequest;
+import com.pushkar.codereview.github.review.dto.GithubPullRequestReviewRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -43,9 +44,9 @@ class CodeReviewControllerTest {
 
     @Test
     void testReviewPullRequest_Success() throws Exception {
-        CodeReviewRequest request = new CodeReviewRequest(123456L, "octocat", "hello-world", 42);
+        GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L);
         CodeReviewExecutionResult expectedResult = new CodeReviewExecutionResult(
-                "octocat/hello-world", 42L, "AI review completed cleanly.", 2, 2
+                100L, 123456L, "octocat", "hello-world", 42L, "COMPLETED", "AI review completed cleanly.", 2, 2
         );
         stubCodeReviewService.setResult(expectedResult);
 
@@ -53,8 +54,12 @@ class CodeReviewControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repository").value("octocat/hello-world"))
+                .andExpect(jsonPath("$.codeReviewId").value(100))
+                .andExpect(jsonPath("$.installationId").value(123456))
+                .andExpect(jsonPath("$.owner").value("octocat"))
+                .andExpect(jsonPath("$.repository").value("hello-world"))
                 .andExpect(jsonPath("$.pullRequestNumber").value(42))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.reviewSummary").value("AI review completed cleanly."))
                 .andExpect(jsonPath("$.totalFindings").value(2))
                 .andExpect(jsonPath("$.postedCommentsCount").value(2));
@@ -67,9 +72,21 @@ class CodeReviewControllerTest {
     }
 
     @Test
+    void testReviewPullRequest_UnverifiedInstallation_Returns422() throws Exception {
+        GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L);
+        stubCodeReviewService.setException(new GithubInstallationVerificationException("Installation not verified"));
+
+        mockMvc.perform(post("/api/v1/code-reviews/pull-request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error").value("GitHub Installation Verification Failed"));
+    }
+
+    @Test
     void testReviewPullRequest_MissingOrInvalidInstallationId() throws Exception {
-        CodeReviewRequest requestNull = new CodeReviewRequest(null, "octocat", "hello-world", 42);
-        CodeReviewRequest requestNegative = new CodeReviewRequest(-5L, "octocat", "hello-world", 42);
+        GithubPullRequestReviewRequest requestNull = new GithubPullRequestReviewRequest(null, "octocat", "hello-world", 42L);
+        GithubPullRequestReviewRequest requestNegative = new GithubPullRequestReviewRequest(-5L, "octocat", "hello-world", 42L);
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -90,7 +107,7 @@ class CodeReviewControllerTest {
 
     @Test
     void testReviewPullRequest_BlankOwner() throws Exception {
-        CodeReviewRequest requestBlankOwner = new CodeReviewRequest(123456L, "   ", "hello-world", 42);
+        GithubPullRequestReviewRequest requestBlankOwner = new GithubPullRequestReviewRequest(123456L, "   ", "hello-world", 42L);
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -104,7 +121,7 @@ class CodeReviewControllerTest {
 
     @Test
     void testReviewPullRequest_BlankRepository() throws Exception {
-        CodeReviewRequest requestBlankRepo = new CodeReviewRequest(123456L, "octocat", "", 42);
+        GithubPullRequestReviewRequest requestBlankRepo = new GithubPullRequestReviewRequest(123456L, "octocat", "", 42L);
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -118,8 +135,8 @@ class CodeReviewControllerTest {
 
     @Test
     void testReviewPullRequest_InvalidPullRequestNumber() throws Exception {
-        CodeReviewRequest requestNullPr = new CodeReviewRequest(123456L, "octocat", "hello-world", null);
-        CodeReviewRequest requestZeroPr = new CodeReviewRequest(123456L, "octocat", "hello-world", 0);
+        GithubPullRequestReviewRequest requestNullPr = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", null);
+        GithubPullRequestReviewRequest requestZeroPr = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 0L);
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -140,7 +157,7 @@ class CodeReviewControllerTest {
 
     @Test
     void testReviewPullRequest_ResourceNotFoundExceptionPropagated() throws Exception {
-        CodeReviewRequest request = new CodeReviewRequest(123456L, "octocat", "hello-world", 42);
+        GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L);
         stubCodeReviewService.setException(new ResourceNotFoundException("GitHub PR not found"));
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
@@ -153,7 +170,7 @@ class CodeReviewControllerTest {
 
     @Test
     void testReviewPullRequest_GithubApiExceptionPropagated() throws Exception {
-        CodeReviewRequest request = new CodeReviewRequest(123456L, "octocat", "hello-world", 42);
+        GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L);
         stubCodeReviewService.setException(new GithubApiException("GitHub API rate limit exceeded", 429));
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
