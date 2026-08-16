@@ -43,26 +43,23 @@ class CodeReviewControllerTest {
     }
 
     @Test
-    void testReviewPullRequest_Success() throws Exception {
+    void testReviewPullRequest_Returns202Accepted() throws Exception {
         GithubPullRequestReviewRequest request = new GithubPullRequestReviewRequest(123456L, "octocat", "hello-world", 42L);
         CodeReviewExecutionResult expectedResult = new CodeReviewExecutionResult(
-                100L, 123456L, "octocat", "hello-world", 42L, "COMPLETED", "AI review completed cleanly.", 2, 2
+                100L, 123456L, "octocat", "hello-world", 42L, "IN_PROGRESS", "", 0, 0
         );
         stubCodeReviewService.setResult(expectedResult);
 
         mockMvc.perform(post("/api/v1/code-reviews/pull-request")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.codeReviewId").value(100))
                 .andExpect(jsonPath("$.installationId").value(123456))
                 .andExpect(jsonPath("$.owner").value("octocat"))
                 .andExpect(jsonPath("$.repository").value("hello-world"))
                 .andExpect(jsonPath("$.pullRequestNumber").value(42))
-                .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.reviewSummary").value("AI review completed cleanly."))
-                .andExpect(jsonPath("$.totalFindings").value(2))
-                .andExpect(jsonPath("$.postedCommentsCount").value(2));
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
 
         assertThat(stubCodeReviewService.isCalled()).isTrue();
         assertThat(stubCodeReviewService.getReceivedInstallationId()).isEqualTo(123456L);

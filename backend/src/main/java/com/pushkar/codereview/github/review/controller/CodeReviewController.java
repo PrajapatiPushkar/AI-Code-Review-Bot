@@ -4,6 +4,7 @@ import com.pushkar.codereview.github.review.GithubPullRequestCodeReviewService;
 import com.pushkar.codereview.github.review.dto.CodeReviewExecutionResult;
 import com.pushkar.codereview.github.review.dto.GithubPullRequestReviewRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +29,6 @@ public class CodeReviewController {
                 request.getRepository(),
                 request.getPullRequestNumber()
         );
-        return ResponseEntity.ok(result);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(result);
     }
 }
