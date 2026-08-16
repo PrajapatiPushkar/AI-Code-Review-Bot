@@ -50,4 +50,11 @@ gemini:
   model: ${GEMINI_MODEL:gemini-2.5-flash}
   api-base-url: ${GEMINI_API_BASE_URL:https://generativelanguage.googleapis.com}
 
+jwt:
+  secret: ${JWT_SECRET:defaultDevSecretKeyThatIsAtLeast32BytesLongForHMACSHA256Signatures12345}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+  token-type: ${JWT_TOKEN_TYPE:Bearer}
+  issuer: ${JWT_ISSUER:ai-code-review-bot}
+
+
 

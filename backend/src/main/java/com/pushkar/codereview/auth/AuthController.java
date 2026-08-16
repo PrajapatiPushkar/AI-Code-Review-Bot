@@ -1,5 +1,7 @@
 package com.pushkar.codereview.auth;
 
+import com.pushkar.codereview.auth.dto.LoginRequest;
+import com.pushkar.codereview.auth.dto.LoginResponse;
 import com.pushkar.codereview.auth.dto.RegisterRequest;
 import com.pushkar.codereview.user.dto.UserResponse;
 import jakarta.validation.Valid;
@@ -14,15 +16,21 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping({"/auth", "/api/v1/auth"})
 public class AuthController {
 
-    private final AuthRegistrationService registrationService;
+    private final AuthService authService;
 
-    public AuthController(AuthRegistrationService registrationService) {
-        this.registrationService = registrationService;
+    public AuthController(AuthService authService) {
+        this.authService = authService;
     }
 
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
-        UserResponse response = registrationService.register(request);
+        UserResponse response = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        LoginResponse response = authService.login(request);
+        return ResponseEntity.ok(response);
     }
 }

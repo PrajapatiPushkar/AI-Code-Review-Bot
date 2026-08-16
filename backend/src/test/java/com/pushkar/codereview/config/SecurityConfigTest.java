@@ -2,6 +2,9 @@ package com.pushkar.codereview.config;
 
 import com.pushkar.codereview.auth.AuthController;
 import com.pushkar.codereview.auth.AuthRegistrationService;
+import com.pushkar.codereview.auth.AuthService;
+import com.pushkar.codereview.auth.dto.LoginRequest;
+import com.pushkar.codereview.auth.dto.LoginResponse;
 import com.pushkar.codereview.auth.dto.RegisterRequest;
 import com.pushkar.codereview.controller.HealthCheckController;
 import com.pushkar.codereview.exception.GlobalExceptionHandler;
@@ -10,6 +13,8 @@ import com.pushkar.codereview.github.review.controller.CodeReviewHistoryControll
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import com.pushkar.codereview.security.CustomUserDetailsService;
+import com.pushkar.codereview.security.JwtAuthenticationFilter;
+import com.pushkar.codereview.security.JwtService;
 import com.pushkar.codereview.user.User;
 import com.pushkar.codereview.user.UserRepository;
 import com.pushkar.codereview.user.dto.UserResponse;
@@ -45,6 +50,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({
         SecurityConfig.class,
         CustomUserDetailsService.class,
+        JwtAuthenticationFilter.class,
+        JwtService.class,
+        JwtProperties.class,
         GlobalExceptionHandler.class,
         SecurityConfigTest.TestConfig.class
 })
@@ -55,6 +63,9 @@ class SecurityConfigTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtService jwtService;
 
     @Autowired
     private StubUserRepository userRepository;
@@ -85,6 +96,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void testLoginEndpoint_AccessibleWithoutAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"usernameOrEmail\":\"test@example.com\",\"password\":\"secretPassword\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isString())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"));
+    }
+
+    @Test
     void testProtectedCodeReviewEndpoint_UnauthenticatedReturns401() throws Exception {
         mockMvc.perform(get("/api/v1/code-reviews/1"))
                 .andExpect(status().isUnauthorized())
@@ -93,18 +114,20 @@ class SecurityConfigTest {
     }
 
     @Test
-    void testProtectedCodeReviewEndpoint_ValidCredentialsAccepted() throws Exception {
+    void testProtectedCodeReviewEndpoint_ValidJwtTokenAccepted() throws Exception {
+        String token = jwtService.generateToken("test@example.com", "USER");
+
         mockMvc.perform(get("/api/v1/code-reviews/1")
-                        .with(httpBasic("test@example.com", "secretPassword")))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.owner").value("octocat"));
     }
 
     @Test
-    void testProtectedCodeReviewEndpoint_InvalidCredentialsReturns401() throws Exception {
+    void testProtectedCodeReviewEndpoint_HttpBasicNotAccepted_Returns401() throws Exception {
         mockMvc.perform(get("/api/v1/code-reviews/1")
-                        .with(httpBasic("test@example.com", "wrongPassword")))
+                        .with(httpBasic("test@example.com", "secretPassword")))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -123,8 +146,8 @@ class SecurityConfigTest {
         }
 
         @Bean
-        public AuthRegistrationService registrationService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
-            return new StubAuthRegistrationService(userRepository, passwordEncoder);
+        public AuthService authService(JwtService jwtService, JwtProperties jwtProperties) {
+            return new StubAuthService(jwtService, jwtProperties);
         }
     }
 
@@ -140,14 +163,23 @@ class SecurityConfigTest {
         }
     }
 
-    private static class StubAuthRegistrationService extends AuthRegistrationService {
-        public StubAuthRegistrationService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
-            super(userRepository, passwordEncoder, null);
+    private static class StubAuthService extends AuthService {
+        private final JwtService jwtService;
+
+        public StubAuthService(JwtService jwtService, JwtProperties jwtProperties) {
+            super(null, jwtService, jwtProperties, null);
+            this.jwtService = jwtService;
         }
 
         @Override
         public UserResponse register(RegisterRequest request) {
             return new UserResponse(10L, null, "newuser", request.getEmail(), null, "USER", Instant.now(), Instant.now());
+        }
+
+        @Override
+        public LoginResponse login(LoginRequest request) {
+            String token = jwtService.generateToken(request.getUsernameOrEmail(), "USER");
+            return new LoginResponse(token, "Bearer", 3600000L);
         }
     }
 

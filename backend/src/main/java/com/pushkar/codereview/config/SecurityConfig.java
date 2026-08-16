@@ -1,6 +1,7 @@
 package com.pushkar.codereview.config;
 
 import com.pushkar.codereview.security.CustomUserDetailsService;
+import com.pushkar.codereview.security.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -9,7 +10,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import java.time.Instant;
 import java.util.Map;
@@ -29,9 +30,11 @@ import java.util.Map;
 public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
+    private final JwtAuthenticationFilter jwtAuthFilter;
 
-    public SecurityConfig(CustomUserDetailsService userDetailsService) {
+    public SecurityConfig(CustomUserDetailsService userDetailsService, JwtAuthenticationFilter jwtAuthFilter) {
         this.userDetailsService = userDetailsService;
+        this.jwtAuthFilter = jwtAuthFilter;
     }
 
     @Bean
@@ -64,7 +67,9 @@ public class SecurityConfig {
                                 "/api/v1/health",
                                 "/actuator/**",
                                 "/auth/register",
-                                "/api/v1/auth/register"
+                                "/api/v1/auth/register",
+                                "/auth/login",
+                                "/api/v1/auth/login"
                         ).permitAll()
                         .requestMatchers(
                                 "/code-reviews/**",
@@ -72,7 +77,7 @@ public class SecurityConfig {
                         ).hasAnyRole("USER", "ADMIN", "DEVELOPER")
                         .anyRequest().authenticated()
                 )
-                .httpBasic(Customizer.withDefaults())
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(customAuthenticationEntryPoint())
                         .accessDeniedHandler(customAccessDeniedHandler())
