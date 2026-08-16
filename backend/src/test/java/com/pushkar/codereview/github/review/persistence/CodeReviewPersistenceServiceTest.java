@@ -138,7 +138,7 @@ class CodeReviewPersistenceServiceTest {
         }
     }
 
-    private static abstract class StubJpaRepository<T, ID> implements org.springframework.data.jpa.repository.JpaRepository<T, ID> {
+    private static abstract class StubJpaRepository<T, ID> implements org.springframework.data.jpa.repository.JpaRepository<T, ID>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<T> {
         protected final java.util.Map<ID, T> database = new java.util.HashMap<>();
 
         @Override
@@ -174,5 +174,15 @@ class CodeReviewPersistenceServiceTest {
         @Override public <S extends T> long count(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> boolean exists(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
         @Override public <S extends T, R> R findBy(org.springframework.data.domain.Example<S> example, java.util.function.Function<org.springframework.data.repository.query.FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
+
+        // JpaSpecificationExecutor Methods
+        @Override public java.util.Optional<T> findOne(org.springframework.data.jpa.domain.Specification<T> spec) { return java.util.Optional.empty(); }
+        @Override public java.util.List<T> findAll(org.springframework.data.jpa.domain.Specification<T> spec) { return new java.util.ArrayList<>(database.values()); }
+        @Override public org.springframework.data.domain.Page<T> findAll(org.springframework.data.jpa.domain.Specification<T> spec, org.springframework.data.domain.Pageable pageable) { return new org.springframework.data.domain.PageImpl<>(new java.util.ArrayList<>(database.values()), pageable, database.size()); }
+        @Override public java.util.List<T> findAll(org.springframework.data.jpa.domain.Specification<T> spec, org.springframework.data.domain.Sort sort) { return new java.util.ArrayList<>(database.values()); }
+        @Override public long count(org.springframework.data.jpa.domain.Specification<T> spec) { return database.size(); }
+        @Override public boolean exists(org.springframework.data.jpa.domain.Specification<T> spec) { return !database.isEmpty(); }
+        @Override public long delete(org.springframework.data.jpa.domain.Specification<T> spec) { return 0; }
+        @Override public <S extends T, R> R findBy(org.springframework.data.jpa.domain.Specification<T> spec, java.util.function.Function<org.springframework.data.repository.query.FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
     }
 }

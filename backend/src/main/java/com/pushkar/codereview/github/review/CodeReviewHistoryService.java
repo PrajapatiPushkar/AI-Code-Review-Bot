@@ -4,7 +4,14 @@ import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewRepository;
+import com.pushkar.codereview.github.review.persistence.CodeReviewSpecification;
+import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import com.pushkar.codereview.security.CurrentUserService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +32,45 @@ public class CodeReviewHistoryService {
     public CodeReviewHistoryService(CodeReviewRepository repository, CurrentUserService currentUserService) {
         this.repository = repository;
         this.currentUserService = currentUserService;
+    }
+
+    public Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String statusStr, String owner, String repositoryName, Integer pullRequestNumber) {
+        if (page < 0) {
+            throw new IllegalArgumentException("Page index must not be negative");
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("Page size must be greater than zero");
+        }
+        if (size > 100) {
+            throw new IllegalArgumentException("Page size must not exceed 100");
+        }
+        if (pullRequestNumber != null && pullRequestNumber <= 0) {
+            throw new IllegalArgumentException("Pull request number must be positive");
+        }
+
+        CodeReviewStatus statusEnum = null;
+        if (statusStr != null && !statusStr.isBlank()) {
+            try {
+                statusEnum = CodeReviewStatus.valueOf(statusStr.toUpperCase().trim());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid status filter: " + statusStr);
+            }
+        }
+
+        Sort sortObj = parseSort(sort);
+        Pageable pageable = PageRequest.of(page, size, sortObj);
+
+        Long targetUserId = null;
+        if (currentUserService != null && currentUserService.isAuthenticated()) {
+            if (!currentUserService.hasRole("ADMIN")) {
+                targetUserId = currentUserService.getCurrentUserId();
+            }
+        }
+
+        Specification<CodeReview> spec = CodeReviewSpecification.withFilters(targetUserId, statusEnum, owner, repositoryName, pullRequestNumber);
+        Page<CodeReview> reviewsPage = repository.findAll(spec, pageable);
+
+        return reviewsPage.map(this::mapToResponse);
     }
 
     public CodeReviewHistoryResponse getById(Long id) {
@@ -94,6 +140,18 @@ public class CodeReviewHistoryService {
         return reviews.stream()
                 .map(this::mapToResponse)
                 .toList();
+    }
+
+    private Sort parseSort(String sortParam) {
+        if (sortParam == null || sortParam.isBlank()) {
+            return Sort.by(Sort.Direction.DESC, "createdAt");
+        }
+        String[] parts = sortParam.split(",");
+        String property = parts[0].trim();
+        Sort.Direction direction = (parts.length > 1 && parts[1].trim().equalsIgnoreCase("asc"))
+                ? Sort.Direction.ASC
+                : Sort.Direction.DESC;
+        return Sort.by(direction, property);
     }
 
     private CodeReviewHistoryResponse mapToResponse(CodeReview review) {

@@ -2,10 +2,12 @@ package com.pushkar.codereview.github.review.controller;
 
 import com.pushkar.codereview.github.review.CodeReviewHistoryService;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -20,6 +22,20 @@ public class CodeReviewHistoryController {
         this.historyService = historyService;
     }
 
+    @GetMapping
+    public ResponseEntity<Page<CodeReviewHistoryResponse>> getCodeReviews(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt,desc") String sort,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String repository,
+            @RequestParam(required = false) String owner,
+            @RequestParam(required = false) Integer pullRequestNumber
+    ) {
+        Page<CodeReviewHistoryResponse> responses = historyService.getCodeReviews(page, size, sort, status, owner, repository, pullRequestNumber);
+        return ResponseEntity.ok(responses);
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<CodeReviewHistoryResponse> getById(@PathVariable Long id) {
         CodeReviewHistoryResponse response = historyService.getById(id);
@@ -28,7 +44,7 @@ public class CodeReviewHistoryController {
 
     @GetMapping("/repository/{owner}/{repository}")
     public ResponseEntity<List<CodeReviewHistoryResponse>> getByRepository(@PathVariable String owner,
-                                                                             @PathVariable String repository) {
+                                                                              @PathVariable String repository) {
         List<CodeReviewHistoryResponse> responses = historyService.getByRepository(owner, repository);
         return ResponseEntity.ok(responses);
     }

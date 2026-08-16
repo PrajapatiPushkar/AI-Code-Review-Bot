@@ -7,6 +7,9 @@ import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -39,6 +42,39 @@ class CodeReviewHistoryControllerTest {
                 .setMessageConverters(converter)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void testGetCodeReviews_Paginated_Success() throws Exception {
+        CodeReviewHistoryResponse sample = new CodeReviewHistoryResponse(
+                1L, 123456L, "octocat", "hello-world", 42,
+                "Found 2 potential issues.", 2, 2,
+                CodeReviewStatus.COMPLETED,
+                Instant.parse("2026-08-16T05:00:00Z"),
+                Instant.parse("2026-08-16T05:00:12Z")
+        );
+        Page<CodeReviewHistoryResponse> pageResponse = new PageImpl<>(List.of(sample), PageRequest.of(0, 20), 1);
+        stubService.setPageResponse(pageResponse);
+
+        mockMvc.perform(get("/api/v1/code-reviews?page=0&size=20&sort=createdAt,desc")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].owner").value("octocat"))
+                .andExpect(jsonPath("$.content[0].repository").value("hello-world"))
+                .andExpect(jsonPath("$.content[0].pullRequestNumber").value(42))
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void testGetCodeReviews_InvalidStatusFilter_Returns400() throws Exception {
+        stubService.setException(new IllegalArgumentException("Invalid status filter: INVALID_STATUS"));
+
+        mockMvc.perform(get("/api/v1/code-reviews?status=INVALID_STATUS")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Invalid status filter: INVALID_STATUS"));
     }
 
     @Test
@@ -146,6 +182,7 @@ class CodeReviewHistoryControllerTest {
     private static class StubCodeReviewHistoryService extends CodeReviewHistoryService {
         private CodeReviewHistoryResponse singleResponse;
         private List<CodeReviewHistoryResponse> listResponse = List.of();
+        private Page<CodeReviewHistoryResponse> pageResponse = Page.empty();
         private RuntimeException exception;
 
         public StubCodeReviewHistoryService() {
@@ -160,8 +197,20 @@ class CodeReviewHistoryControllerTest {
             this.listResponse = listResponse;
         }
 
+        public void setPageResponse(Page<CodeReviewHistoryResponse> pageResponse) {
+            this.pageResponse = pageResponse;
+        }
+
         public void setException(RuntimeException exception) {
             this.exception = exception;
+        }
+
+        @Override
+        public Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String statusStr, String owner, String repositoryName, Integer pullRequestNumber) {
+            if (exception != null) {
+                throw exception;
+            }
+            return pageResponse;
         }
 
         @Override
