@@ -42,6 +42,10 @@ public class AsyncCodeReviewRunner {
                     installationId, owner, repository, pullRequestNumber, commitId, reviewResult
             );
 
+            if (persistenceService != null && reviewId != null && reviewResult != null && reviewResult.getFindings() != null) {
+                persistenceService.saveFindings(reviewId, reviewResult.getFindings());
+            }
+
             String summary = (reviewResult != null) ? reviewResult.getSummary() : "";
             int totalFindings = (reviewResult != null && reviewResult.getFindings() != null) ? reviewResult.getFindings().size() : 0;
             int postedCommentsCount = (postedComments != null) ? postedComments.size() : 0;

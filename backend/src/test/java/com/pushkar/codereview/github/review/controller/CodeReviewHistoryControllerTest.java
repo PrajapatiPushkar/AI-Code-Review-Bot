@@ -3,12 +3,14 @@ package com.pushkar.codereview.github.review.controller;
 import com.pushkar.codereview.exception.GlobalExceptionHandler;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.CodeReviewHistoryService;
+import com.pushkar.codereview.github.review.dto.CodeReviewFindingResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewResultResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewStatusResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
@@ -90,10 +92,14 @@ class CodeReviewHistoryControllerTest {
 
     @Test
     void testGetResultById_Returns200OK() throws Exception {
+        CodeReviewFindingResponse finding = new CodeReviewFindingResponse(
+                10L, "App.java", 42, 45, "HIGH", "BUG", "Bug msg", "Fix bug", Instant.now()
+        );
         CodeReviewResultResponse response = new CodeReviewResultResponse(
                 1L, 123456L, "octocat", "hello-world", 42,
                 CodeReviewStatus.COMPLETED, "Found 2 potential issues.", 2, 2,
-                Instant.parse("2026-08-16T05:00:00Z"), Instant.parse("2026-08-16T05:00:12Z")
+                Instant.parse("2026-08-16T05:00:00Z"), Instant.parse("2026-08-16T05:00:12Z"),
+                List.of(finding)
         );
         stubHistoryService.setResultResponse(response);
 
@@ -106,7 +112,45 @@ class CodeReviewHistoryControllerTest {
                 .andExpect(jsonPath("$.repository").value("hello-world"))
                 .andExpect(jsonPath("$.pullRequestNumber").value(42))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.reviewSummary").value("Found 2 potential issues."));
+                .andExpect(jsonPath("$.findings[0].id").value(10))
+                .andExpect(jsonPath("$.findings[0].filePath").value("App.java"))
+                .andExpect(jsonPath("$.findings[0].severity").value("HIGH"));
+    }
+
+    @Test
+    void testGetFindingsByReviewId_Returns200OK() throws Exception {
+        CodeReviewFindingResponse finding = new CodeReviewFindingResponse(
+                10L, "App.java", 42, 45, "HIGH", "BUG", "Bug msg", "Fix bug", Instant.now()
+        );
+        stubHistoryService.setFindingsPageResponse(new PageImpl<>(List.of(finding), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/v1/code-reviews/1/findings")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(10))
+                .andExpect(jsonPath("$.content[0].filePath").value("App.java"))
+                .andExpect(jsonPath("$.content[0].lineNumber").value(42))
+                .andExpect(jsonPath("$.content[0].severity").value("HIGH"));
+    }
+
+    @Test
+    void testGetFindingsByReviewId_AccessDenied_Returns403() throws Exception {
+        stubHistoryService.setException(new AccessDeniedException("Access denied"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/1/findings")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    void testGetFindingsByReviewId_NotFound_Returns404() throws Exception {
+        stubHistoryService.setException(new ResourceNotFoundException("Review not found"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/999/findings")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Resource Not Found"));
     }
 
     @Test
@@ -135,7 +179,8 @@ class CodeReviewHistoryControllerTest {
         private CodeReviewHistoryResponse singleResponse;
         private CodeReviewStatusResponse statusResponse;
         private CodeReviewResultResponse resultResponse;
-        private org.springframework.data.domain.Page<CodeReviewHistoryResponse> pageResponse = new PageImpl<>(List.of(), PageRequest.of(0, 20), 0);
+        private Page<CodeReviewHistoryResponse> pageResponse = new PageImpl<>(List.of(), PageRequest.of(0, 20), 0);
+        private Page<CodeReviewFindingResponse> findingsPageResponse = new PageImpl<>(List.of(), PageRequest.of(0, 20), 0);
         private RuntimeException exception;
 
         public StubCodeReviewHistoryService() {
@@ -145,11 +190,12 @@ class CodeReviewHistoryControllerTest {
         public void setSingleResponse(CodeReviewHistoryResponse singleResponse) { this.singleResponse = singleResponse; }
         public void setStatusResponse(CodeReviewStatusResponse statusResponse) { this.statusResponse = statusResponse; }
         public void setResultResponse(CodeReviewResultResponse resultResponse) { this.resultResponse = resultResponse; }
-        public void setPageResponse(org.springframework.data.domain.Page<CodeReviewHistoryResponse> pageResponse) { this.pageResponse = pageResponse; }
+        public void setPageResponse(Page<CodeReviewHistoryResponse> pageResponse) { this.pageResponse = pageResponse; }
+        public void setFindingsPageResponse(Page<CodeReviewFindingResponse> findingsPageResponse) { this.findingsPageResponse = findingsPageResponse; }
         public void setException(RuntimeException exception) { this.exception = exception; }
 
         @Override
-        public org.springframework.data.domain.Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String status, String owner, String repository, Integer pullRequestNumber) {
+        public Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String status, String owner, String repository, Integer pullRequestNumber) {
             if (exception != null) throw exception;
             return pageResponse;
         }
@@ -170,6 +216,12 @@ class CodeReviewHistoryControllerTest {
         public CodeReviewResultResponse getResultById(Long id) {
             if (exception != null) throw exception;
             return resultResponse;
+        }
+
+        @Override
+        public Page<CodeReviewFindingResponse> getFindingsByReviewId(Long id, int page, int size, String sort) {
+            if (exception != null) throw exception;
+            return findingsPageResponse;
         }
     }
 }

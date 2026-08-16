@@ -1,10 +1,13 @@
 package com.pushkar.codereview.github.review;
 
 import com.pushkar.codereview.exception.ResourceNotFoundException;
+import com.pushkar.codereview.github.review.dto.CodeReviewFindingResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewResultResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewStatusResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
+import com.pushkar.codereview.github.review.persistence.CodeReviewFinding;
+import com.pushkar.codereview.github.review.persistence.CodeReviewFindingRepository;
 import com.pushkar.codereview.github.review.persistence.CodeReviewRepository;
 import com.pushkar.codereview.github.review.persistence.CodeReviewSpecification;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
@@ -26,14 +29,20 @@ public class CodeReviewHistoryService {
 
     private final CodeReviewRepository repository;
     private final CurrentUserService currentUserService;
+    private final CodeReviewFindingRepository findingRepository;
 
     public CodeReviewHistoryService(CodeReviewRepository repository) {
-        this(repository, null);
+        this(repository, null, null);
     }
 
     public CodeReviewHistoryService(CodeReviewRepository repository, CurrentUserService currentUserService) {
+        this(repository, currentUserService, null);
+    }
+
+    public CodeReviewHistoryService(CodeReviewRepository repository, CurrentUserService currentUserService, CodeReviewFindingRepository findingRepository) {
         this.repository = repository;
         this.currentUserService = currentUserService;
+        this.findingRepository = findingRepository;
     }
 
     public Page<CodeReviewHistoryResponse> getCodeReviews(int page, int size, String sort, String statusStr, String owner, String repositoryName, Integer pullRequestNumber) {
@@ -95,6 +104,15 @@ public class CodeReviewHistoryService {
 
     public CodeReviewResultResponse getResultById(Long id) {
         CodeReview review = findAndAuthorizeReview(id);
+
+        List<CodeReviewFindingResponse> findings = null;
+        if (review.getStatus() == CodeReviewStatus.COMPLETED && findingRepository != null) {
+            findings = findingRepository.findByCodeReviewIdOrderByFilePathAscLineNumberAsc(id)
+                    .stream()
+                    .map(this::mapToFindingResponse)
+                    .toList();
+        }
+
         return new CodeReviewResultResponse(
                 review.getId(),
                 review.getInstallationId(),
@@ -106,8 +124,33 @@ public class CodeReviewHistoryService {
                 review.getTotalFindings(),
                 review.getPostedCommentsCount(),
                 review.getCreatedAt(),
-                review.getCompletedAt()
+                review.getCompletedAt(),
+                findings
         );
+    }
+
+    public Page<CodeReviewFindingResponse> getFindingsByReviewId(Long id, int page, int size, String sort) {
+        if (page < 0) {
+            throw new IllegalArgumentException("Page index must not be negative");
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("Page size must be greater than zero");
+        }
+        if (size > 100) {
+            throw new IllegalArgumentException("Page size must not exceed 100");
+        }
+
+        findAndAuthorizeReview(id);
+
+        if (findingRepository == null) {
+            return Page.empty();
+        }
+
+        Sort sortObj = parseSort(sort);
+        Pageable pageable = PageRequest.of(page, size, sortObj);
+
+        Page<CodeReviewFinding> findingsPage = findingRepository.findByCodeReviewId(id, pageable);
+        return findingsPage.map(this::mapToFindingResponse);
     }
 
     public List<CodeReviewHistoryResponse> getByRepository(String owner, String repositoryName) {
@@ -181,13 +224,13 @@ public class CodeReviewHistoryService {
 
     private Sort parseSort(String sortParam) {
         if (sortParam == null || sortParam.isBlank()) {
-            return Sort.by(Sort.Direction.DESC, "createdAt");
+            return Sort.by(Sort.Direction.ASC, "lineNumber");
         }
         String[] parts = sortParam.split(",");
         String property = parts[0].trim();
-        Sort.Direction direction = (parts.length > 1 && parts[1].trim().equalsIgnoreCase("asc"))
-                ? Sort.Direction.ASC
-                : Sort.Direction.DESC;
+        Sort.Direction direction = (parts.length > 1 && parts[1].trim().equalsIgnoreCase("desc"))
+                ? Sort.Direction.DESC
+                : Sort.Direction.ASC;
         return Sort.by(direction, property);
     }
 
@@ -207,6 +250,23 @@ public class CodeReviewHistoryService {
                 review.getStatus(),
                 review.getCreatedAt(),
                 review.getCompletedAt()
+        );
+    }
+
+    private CodeReviewFindingResponse mapToFindingResponse(CodeReviewFinding finding) {
+        if (finding == null) {
+            return null;
+        }
+        return new CodeReviewFindingResponse(
+                finding.getId(),
+                finding.getFilePath(),
+                finding.getLineNumber(),
+                finding.getEndLineNumber(),
+                finding.getSeverity() != null ? finding.getSeverity().name() : "INFO",
+                finding.getCategory() != null ? finding.getCategory().name() : null,
+                finding.getMessage(),
+                finding.getSuggestion(),
+                finding.getCreatedAt()
         );
     }
 }

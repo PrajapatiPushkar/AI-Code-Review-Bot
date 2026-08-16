@@ -10,6 +10,7 @@ import com.pushkar.codereview.github.review.dto.ReviewFindingSeverity;
 import com.pushkar.codereview.github.review.dto.ReviewInput;
 import com.pushkar.codereview.github.review.dto.ReviewResult;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
+import com.pushkar.codereview.github.review.persistence.CodeReviewFinding;
 import com.pushkar.codereview.github.review.persistence.CodeReviewPersistenceService;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,9 +50,10 @@ class AsyncCodeReviewRunnerTest {
     }
 
     @Test
-    void testExecuteReviewAsync_Success_MarksCompleted() {
+    void testExecuteReviewAsync_Success_MarksCompletedAndSavesFindings() {
         ReviewFinding finding1 = new ReviewFinding("Main.java", 10, ReviewFindingSeverity.HIGH, ReviewFindingCategory.BUG, "Bug msg", "Fix bug");
-        ReviewResult sampleResult = new ReviewResult("Summary text", List.of(finding1));
+        ReviewFinding finding2 = new ReviewFinding("App.java", 20, ReviewFindingSeverity.MEDIUM, ReviewFindingCategory.SECURITY, "Security msg", "Fix security");
+        ReviewResult sampleResult = new ReviewResult("Summary text", List.of(finding1, finding2));
 
         GithubReviewCommentResponse comment1 = new GithubReviewCommentResponse(1L, "body1", "Main.java", 10, "sha999", "url1", Instant.now());
 
@@ -63,20 +65,23 @@ class AsyncCodeReviewRunnerTest {
 
         assertThat(persistenceService.isMarkedCompleted()).isTrue();
         assertThat(persistenceService.isMarkedFailed()).isFalse();
+        assertThat(persistenceService.isFindingsSaved()).isTrue();
+        assertThat(persistenceService.getSavedFindingsCount()).isEqualTo(2);
         assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.COMPLETED);
         assertThat(persistenceService.getLastEntity().getReviewSummary()).isEqualTo("Summary text");
-        assertThat(persistenceService.getLastEntity().getTotalFindings()).isEqualTo(1);
+        assertThat(persistenceService.getLastEntity().getTotalFindings()).isEqualTo(2);
         assertThat(persistenceService.getLastEntity().getPostedCommentsCount()).isEqualTo(1);
     }
 
     @Test
-    void testExecuteReviewAsync_Failure_MarksFailed() {
+    void testExecuteReviewAsync_Failure_MarksFailedWithoutInconsistentFindings() {
         pullRequestReviewService.setException(new ResourceNotFoundException("GitHub PR not found"));
 
         runner.executeReviewAsync(100L, 12345L, "octocat", "hello-world", 42L);
 
         assertThat(persistenceService.isMarkedFailed()).isTrue();
         assertThat(persistenceService.isMarkedCompleted()).isFalse();
+        assertThat(persistenceService.isFindingsSaved()).isFalse();
         assertThat(persistenceService.getLastEntity().getStatus()).isEqualTo(CodeReviewStatus.FAILED);
         assertThat(persistenceService.getLastEntity().getReviewSummary()).contains("FAILED: GitHub PR not found");
     }
@@ -127,12 +132,23 @@ class AsyncCodeReviewRunnerTest {
         private CodeReview entity;
         private boolean markedCompleted = false;
         private boolean markedFailed = false;
+        private boolean findingsSaved = false;
+        private int savedFindingsCount = 0;
 
         public StubPersistenceService() { super(null); }
 
         public boolean isMarkedCompleted() { return markedCompleted; }
         public boolean isMarkedFailed() { return markedFailed; }
+        public boolean isFindingsSaved() { return findingsSaved; }
+        public int getSavedFindingsCount() { return savedFindingsCount; }
         public CodeReview getLastEntity() { return entity; }
+
+        @Override
+        public List<CodeReviewFinding> saveFindings(Long reviewId, List<ReviewFinding> findings) {
+            this.findingsSaved = true;
+            this.savedFindingsCount = (findings != null) ? findings.size() : 0;
+            return List.of();
+        }
 
         @Override
         public CodeReview markCompleted(Long reviewId, String reviewSummary, int totalFindings, int postedCommentsCount) {

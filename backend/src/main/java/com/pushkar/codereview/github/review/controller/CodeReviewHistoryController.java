@@ -1,6 +1,7 @@
 package com.pushkar.codereview.github.review.controller;
 
 import com.pushkar.codereview.github.review.CodeReviewHistoryService;
+import com.pushkar.codereview.github.review.dto.CodeReviewFindingResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewResultResponse;
 import com.pushkar.codereview.github.review.dto.CodeReviewStatusResponse;
@@ -54,6 +55,17 @@ public class CodeReviewHistoryController {
     public ResponseEntity<CodeReviewResultResponse> getResultById(@PathVariable Long id) {
         CodeReviewResultResponse response = historyService.getResultById(id);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/findings")
+    public ResponseEntity<Page<CodeReviewFindingResponse>> getFindingsByReviewId(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "lineNumber,asc") String sort
+    ) {
+        Page<CodeReviewFindingResponse> responses = historyService.getFindingsByReviewId(id, page, size, sort);
+        return ResponseEntity.ok(responses);
     }
 
     @GetMapping("/repository/{owner}/{repository}")

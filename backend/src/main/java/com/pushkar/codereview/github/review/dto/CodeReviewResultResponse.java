@@ -3,6 +3,7 @@ package com.pushkar.codereview.github.review.dto;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 public class CodeReviewResultResponse {
@@ -18,6 +19,7 @@ public class CodeReviewResultResponse {
     private Integer postedCommentsCount;
     private Instant createdAt;
     private Instant completedAt;
+    private List<CodeReviewFindingResponse> findings;
 
     public CodeReviewResultResponse() {
     }
@@ -26,6 +28,15 @@ public class CodeReviewResultResponse {
                                     Integer pullRequestNumber, CodeReviewStatus status, String reviewSummary,
                                     Integer totalFindings, Integer postedCommentsCount,
                                     Instant createdAt, Instant completedAt) {
+        this(codeReviewId, installationId, owner, repository, pullRequestNumber, status, reviewSummary,
+                totalFindings, postedCommentsCount, createdAt, completedAt, null);
+    }
+
+    public CodeReviewResultResponse(Long codeReviewId, Long installationId, String owner, String repository,
+                                    Integer pullRequestNumber, CodeReviewStatus status, String reviewSummary,
+                                    Integer totalFindings, Integer postedCommentsCount,
+                                    Instant createdAt, Instant completedAt,
+                                    List<CodeReviewFindingResponse> findings) {
         this.codeReviewId = codeReviewId;
         this.installationId = installationId;
         this.owner = owner;
@@ -37,6 +48,7 @@ public class CodeReviewResultResponse {
         this.postedCommentsCount = postedCommentsCount;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
+        this.findings = findings;
     }
 
     public Long getCodeReviewId() {
@@ -127,6 +139,14 @@ public class CodeReviewResultResponse {
         this.completedAt = completedAt;
     }
 
+    public List<CodeReviewFindingResponse> getFindings() {
+        return findings;
+    }
+
+    public void setFindings(List<CodeReviewFindingResponse> findings) {
+        this.findings = findings;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -142,12 +162,13 @@ public class CodeReviewResultResponse {
                 Objects.equals(totalFindings, that.totalFindings) &&
                 Objects.equals(postedCommentsCount, that.postedCommentsCount) &&
                 Objects.equals(createdAt, that.createdAt) &&
-                Objects.equals(completedAt, that.completedAt);
+                Objects.equals(completedAt, that.completedAt) &&
+                Objects.equals(findings, that.findings);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(codeReviewId, installationId, owner, repository, pullRequestNumber,
-                status, reviewSummary, totalFindings, postedCommentsCount, createdAt, completedAt);
+                status, reviewSummary, totalFindings, postedCommentsCount, createdAt, completedAt, findings);
     }
 }

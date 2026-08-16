@@ -1,0 +1,15 @@
+CREATE TABLE code_review_findings (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code_review_id BIGINT NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    line_number INT NOT NULL,
+    end_line_number INT,
+    severity VARCHAR(20) NOT NULL,
+    category VARCHAR(50),
+    message TEXT,
+    suggestion TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_code_review_findings_code_review FOREIGN KEY (code_review_id) REFERENCES code_reviews(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_code_review_findings_code_review_id ON code_review_findings(code_review_id);
