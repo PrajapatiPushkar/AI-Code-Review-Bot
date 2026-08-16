@@ -1,12 +1,16 @@
 package com.pushkar.codereview.github.review.persistence;
 
+import com.pushkar.codereview.user.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
@@ -19,6 +23,10 @@ public class CodeReview {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
 
     @Column(name = "installation_id", nullable = false)
     private Long installationId;
@@ -55,10 +63,15 @@ public class CodeReview {
     }
 
     public CodeReview(Long installationId, String owner, String repository, Integer pullRequestNumber) {
+        this(installationId, owner, repository, pullRequestNumber, null);
+    }
+
+    public CodeReview(Long installationId, String owner, String repository, Integer pullRequestNumber, User user) {
         this.installationId = installationId;
         this.owner = owner;
         this.repository = repository;
         this.pullRequestNumber = pullRequestNumber;
+        this.user = user;
         this.status = CodeReviewStatus.IN_PROGRESS;
         this.createdAt = Instant.now();
     }
@@ -69,6 +82,14 @@ public class CodeReview {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
     }
 
     public Long getInstallationId() {

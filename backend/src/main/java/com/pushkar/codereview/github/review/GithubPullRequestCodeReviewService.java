@@ -7,6 +7,8 @@ import com.pushkar.codereview.github.review.dto.ReviewInput;
 import com.pushkar.codereview.github.review.dto.ReviewResult;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewPersistenceService;
+import com.pushkar.codereview.security.CurrentUserService;
+import com.pushkar.codereview.user.User;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -18,15 +20,25 @@ public class GithubPullRequestCodeReviewService {
     private final AiReviewService aiReviewService;
     private final GithubReviewCommentService reviewCommentService;
     private final CodeReviewPersistenceService persistenceService;
+    private final CurrentUserService currentUserService;
 
     public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
                                                AiReviewService aiReviewService,
                                                GithubReviewCommentService reviewCommentService,
                                                CodeReviewPersistenceService persistenceService) {
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null);
+    }
+
+    public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
+                                               AiReviewService aiReviewService,
+                                               GithubReviewCommentService reviewCommentService,
+                                               CodeReviewPersistenceService persistenceService,
+                                               CurrentUserService currentUserService) {
         this.pullRequestReviewService = pullRequestReviewService;
         this.aiReviewService = aiReviewService;
         this.reviewCommentService = reviewCommentService;
         this.persistenceService = persistenceService;
+        this.currentUserService = currentUserService;
     }
 
     public CodeReviewExecutionResult executeCodeReview(Long installationId,
@@ -44,7 +56,8 @@ public class GithubPullRequestCodeReviewService {
 
         CodeReview reviewRecord = null;
         if (persistenceService != null) {
-            reviewRecord = persistenceService.createInProgressReview(installationId, owner, repository, (int) pullRequestNumber);
+            User currentUser = (currentUserService != null) ? currentUserService.findCurrentUser().orElse(null) : null;
+            reviewRecord = persistenceService.createInProgressReview(installationId, owner, repository, (int) pullRequestNumber, currentUser);
         }
 
         try {

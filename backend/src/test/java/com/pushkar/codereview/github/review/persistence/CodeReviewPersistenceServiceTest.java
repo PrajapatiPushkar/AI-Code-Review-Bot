@@ -106,6 +106,36 @@ class CodeReviewPersistenceServiceTest {
                     .sorted(java.util.Comparator.comparing(CodeReview::getCreatedAt).reversed())
                     .toList();
         }
+
+        @Override
+        public java.util.List<CodeReview> findByUserIdOrderByCreatedAtDesc(Long userId) {
+            return database.values().stream()
+                    .filter(r -> r.getUser() != null && userId.equals(r.getUser().getId()))
+                    .sorted(java.util.Comparator.comparing(CodeReview::getCreatedAt).reversed())
+                    .toList();
+        }
+
+        @Override
+        public java.util.List<CodeReview> findByUserIdAndOwnerAndRepositoryOrderByCreatedAtDesc(Long userId, String owner, String repository) {
+            return database.values().stream()
+                    .filter(r -> r.getUser() != null && userId.equals(r.getUser().getId()) && r.getOwner().equals(owner) && r.getRepository().equals(repository))
+                    .sorted(java.util.Comparator.comparing(CodeReview::getCreatedAt).reversed())
+                    .toList();
+        }
+
+        @Override
+        public java.util.List<CodeReview> findByUserIdAndOwnerAndRepositoryAndPullRequestNumber(Long userId, String owner, String repository, Integer pullRequestNumber) {
+            return database.values().stream()
+                    .filter(r -> r.getUser() != null && userId.equals(r.getUser().getId()) && r.getOwner().equals(owner) && r.getRepository().equals(repository) && r.getPullRequestNumber().equals(pullRequestNumber))
+                    .toList();
+        }
+
+        @Override
+        public java.util.Optional<CodeReview> findByIdAndUserId(Long id, Long userId) {
+            return database.values().stream()
+                    .filter(r -> r.getId().equals(id) && r.getUser() != null && userId.equals(r.getUser().getId()))
+                    .findFirst();
+        }
     }
 
     private static abstract class StubJpaRepository<T, ID> implements org.springframework.data.jpa.repository.JpaRepository<T, ID> {

@@ -125,6 +125,19 @@ class SecurityConfigTest {
     }
 
     @Test
+    void testProtectedCodeReviewEndpoint_DeveloperAndAdminJwtTokenAccepted() throws Exception {
+        String devToken = jwtService.generateToken("test@example.com", "DEVELOPER");
+        mockMvc.perform(get("/api/v1/code-reviews/1")
+                        .header("Authorization", "Bearer " + devToken))
+                .andExpect(status().isOk());
+
+        String adminToken = jwtService.generateToken("test@example.com", "ADMIN");
+        mockMvc.perform(get("/api/v1/code-reviews/1")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void testProtectedCodeReviewEndpoint_HttpBasicNotAccepted_Returns401() throws Exception {
         mockMvc.perform(get("/api/v1/code-reviews/1")
                         .with(httpBasic("test@example.com", "secretPassword")))

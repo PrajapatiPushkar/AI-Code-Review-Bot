@@ -1,6 +1,7 @@
 package com.pushkar.codereview.github.review.persistence;
 
 import com.pushkar.codereview.exception.ResourceNotFoundException;
+import com.pushkar.codereview.user.User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,7 +18,12 @@ public class CodeReviewPersistenceService {
 
     @Transactional
     public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber) {
-        CodeReview review = new CodeReview(installationId, owner, repositoryName, pullRequestNumber);
+        return createInProgressReview(installationId, owner, repositoryName, pullRequestNumber, null);
+    }
+
+    @Transactional
+    public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, User user) {
+        CodeReview review = new CodeReview(installationId, owner, repositoryName, pullRequestNumber, user);
         review.setStatus(CodeReviewStatus.IN_PROGRESS);
         review.setCreatedAt(Instant.now());
         review.setCompletedAt(null);

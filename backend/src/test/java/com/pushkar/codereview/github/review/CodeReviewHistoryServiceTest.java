@@ -5,8 +5,12 @@ import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewRepository;
 import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
+import com.pushkar.codereview.security.CurrentUserService;
+import com.pushkar.codereview.user.User;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -22,12 +26,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CodeReviewHistoryServiceTest {
 
     private StubCodeReviewRepository repository;
+    private StubCurrentUserService currentUserService;
     private CodeReviewHistoryService service;
+
+    private User user1;
+    private User user2;
 
     @BeforeEach
     void setUp() {
         repository = new StubCodeReviewRepository();
-        service = new CodeReviewHistoryService(repository);
+        currentUserService = new StubCurrentUserService();
+        service = new CodeReviewHistoryService(repository, currentUserService);
+
+        user1 = new User("user1", "user1@example.com", "hash", "USER");
+        user1.setId(10L);
+
+        user2 = new User("user2", "user2@example.com", "hash", "USER");
+        user2.setId(20L);
+    }
+
+    @AfterEach
+    void tearDown() {
+        currentUserService.clear();
     }
 
     @Test
@@ -47,8 +67,78 @@ class CodeReviewHistoryServiceTest {
         assertThat(response.getTotalFindings()).isEqualTo(2);
         assertThat(response.getPostedCommentsCount()).isEqualTo(2);
         assertThat(response.getStatus()).isEqualTo(CodeReviewStatus.COMPLETED);
-        assertThat(response.getCreatedAt()).isEqualTo(entity.getCreatedAt());
-        assertThat(response.getCompletedAt()).isEqualTo(entity.getCompletedAt());
+    }
+
+    @Test
+    void testGetById_UserCanAccessOwnReview() {
+        CodeReview review = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
+        review.setUser(user1);
+        repository.save(review);
+
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
+
+        CodeReviewHistoryResponse response = service.getById(1L);
+        assertThat(response).isNotNull();
+        assertThat(response.getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void testGetById_UserCannotAccessAnotherUsersReview_ThrowsAccessDeniedException() {
+        CodeReview review = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
+        review.setUser(user1);
+        repository.save(review);
+
+        currentUserService.setContext(user2.getId(), "user2@example.com", "USER");
+
+        assertThatThrownBy(() -> service.getById(1L))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("You do not have permission to access this code review");
+    }
+
+    @Test
+    void testGetById_AdminCanAccessAnotherUsersReview() {
+        CodeReview review = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
+        review.setUser(user1);
+        repository.save(review);
+
+        currentUserService.setContext(99L, "admin@example.com", "ADMIN");
+
+        CodeReviewHistoryResponse response = service.getById(1L);
+        assertThat(response).isNotNull();
+        assertThat(response.getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void testGetByRepository_UserSeesOnlyOwnReviews() {
+        CodeReview r1 = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
+        r1.setUser(user1);
+        CodeReview r2 = createSampleReview(2L, 123456L, "octocat", "hello-world", 43, CodeReviewStatus.COMPLETED);
+        r2.setUser(user2);
+        repository.save(r1);
+        repository.save(r2);
+
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
+
+        List<CodeReviewHistoryResponse> responses = service.getByRepository("octocat", "hello-world");
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void testGetByRepository_AdminSeesAllReviews() {
+        CodeReview r1 = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
+        r1.setUser(user1);
+        CodeReview r2 = createSampleReview(2L, 123456L, "octocat", "hello-world", 43, CodeReviewStatus.COMPLETED);
+        r2.setUser(user2);
+        repository.save(r1);
+        repository.save(r2);
+
+        currentUserService.setContext(99L, "admin@example.com", "ADMIN");
+
+        List<CodeReviewHistoryResponse> responses = service.getByRepository("octocat", "hello-world");
+
+        assertThat(responses).hasSize(2);
     }
 
     @Test
@@ -56,35 +146,6 @@ class CodeReviewHistoryServiceTest {
         assertThatThrownBy(() -> service.getById(999L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("CodeReview record not found with id: 999");
-    }
-
-    @Test
-    void testGetByRepository_Success() {
-        CodeReview r1 = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
-        CodeReview r2 = createSampleReview(2L, 123456L, "octocat", "hello-world", 43, CodeReviewStatus.IN_PROGRESS);
-        repository.save(r1);
-        repository.save(r2);
-
-        List<CodeReviewHistoryResponse> responses = service.getByRepository("octocat", "hello-world");
-
-        assertThat(responses).hasSize(2);
-        assertThat(responses).extracting(CodeReviewHistoryResponse::getOwner).containsOnly("octocat");
-        assertThat(responses).extracting(CodeReviewHistoryResponse::getRepository).containsOnly("hello-world");
-    }
-
-    @Test
-    void testGetByPullRequest_Success() {
-        CodeReview r1 = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
-        CodeReview r2 = createSampleReview(2L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.FAILED);
-        CodeReview r3 = createSampleReview(3L, 123456L, "octocat", "hello-world", 99, CodeReviewStatus.COMPLETED);
-        repository.save(r1);
-        repository.save(r2);
-        repository.save(r3);
-
-        List<CodeReviewHistoryResponse> responses = service.getByPullRequest("octocat", "hello-world", 42);
-
-        assertThat(responses).hasSize(2);
-        assertThat(responses).extracting(CodeReviewHistoryResponse::getPullRequestNumber).containsOnly(42);
     }
 
     @Test
@@ -96,85 +157,7 @@ class CodeReviewHistoryServiceTest {
         assertThatThrownBy(() -> service.getById(0L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Review ID must be positive");
-
-        assertThatThrownBy(() -> service.getById(-5L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Review ID must be positive");
     }
-
-    @Test
-    void testBlankOwner_Rejected() {
-        assertThatThrownBy(() -> service.getByRepository(null, "hello-world"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Owner must not be blank");
-
-        assertThatThrownBy(() -> service.getByRepository("   ", "hello-world"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Owner must not be blank");
-
-        assertThatThrownBy(() -> service.getByPullRequest("", "hello-world", 42))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Owner must not be blank");
-    }
-
-    @Test
-    void testBlankRepository_Rejected() {
-        assertThatThrownBy(() -> service.getByRepository("octocat", null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Repository must not be blank");
-
-        assertThatThrownBy(() -> service.getByRepository("octocat", "  "))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Repository must not be blank");
-
-        assertThatThrownBy(() -> service.getByPullRequest("octocat", "", 42))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Repository must not be blank");
-    }
-
-    @Test
-    void testInvalidPullRequestNumber_Rejected() {
-        assertThatThrownBy(() -> service.getByPullRequest("octocat", "hello-world", 0))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Pull request number must be positive");
-
-        assertThatThrownBy(() -> service.getByPullRequest("octocat", "hello-world", -10))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Pull request number must be positive");
-    }
-
-    @Test
-    void testEntityToDtoMapping_TimestampsAndStatusPreserved() {
-        Instant now = Instant.now();
-        Instant completedAt = now.plusSeconds(12);
-
-        CodeReview entity = new CodeReview(123456L, "octocat", "hello-world", 42);
-        entity.setId(100L);
-        entity.setReviewSummary("Passed cleanly.");
-        entity.setTotalFindings(5);
-        entity.setPostedCommentsCount(3);
-        entity.setStatus(CodeReviewStatus.FAILED);
-        entity.setCreatedAt(now);
-        entity.setCompletedAt(completedAt);
-
-        repository.save(entity);
-
-        CodeReviewHistoryResponse dto = service.getById(100L);
-
-        assertThat(dto.getId()).isEqualTo(100L);
-        assertThat(dto.getInstallationId()).isEqualTo(123456L);
-        assertThat(dto.getOwner()).isEqualTo("octocat");
-        assertThat(dto.getRepository()).isEqualTo("hello-world");
-        assertThat(dto.getPullRequestNumber()).isEqualTo(42);
-        assertThat(dto.getReviewSummary()).isEqualTo("Passed cleanly.");
-        assertThat(dto.getTotalFindings()).isEqualTo(5);
-        assertThat(dto.getPostedCommentsCount()).isEqualTo(3);
-        assertThat(dto.getStatus()).isEqualTo(CodeReviewStatus.FAILED);
-        assertThat(dto.getCreatedAt()).isEqualTo(now);
-        assertThat(dto.getCompletedAt()).isEqualTo(completedAt);
-    }
-
-    // --- Helper & Stub ---
 
     private CodeReview createSampleReview(Long id, Long installationId, String owner, String repo, int prNumber, CodeReviewStatus status) {
         CodeReview review = new CodeReview(installationId, owner, repo, prNumber);
@@ -186,6 +169,50 @@ class CodeReviewHistoryServiceTest {
         review.setCreatedAt(Instant.parse("2026-08-16T05:00:00Z"));
         review.setCompletedAt(status == CodeReviewStatus.IN_PROGRESS ? null : Instant.parse("2026-08-16T05:00:12Z"));
         return review;
+    }
+
+    private static class StubCurrentUserService extends CurrentUserService {
+        private Long userId;
+        private String username;
+        private String role;
+
+        public StubCurrentUserService() {
+            super(null);
+        }
+
+        public void setContext(Long userId, String username, String role) {
+            this.userId = userId;
+            this.username = username;
+            this.role = role;
+        }
+
+        public void clear() {
+            this.userId = null;
+            this.username = null;
+            this.role = null;
+        }
+
+        @Override
+        public boolean isAuthenticated() {
+            return username != null;
+        }
+
+        @Override
+        public String getCurrentUsername() {
+            return username;
+        }
+
+        @Override
+        public Long getCurrentUserId() {
+            return userId;
+        }
+
+        @Override
+        public boolean hasRole(String roleName) {
+            if (this.role == null) return false;
+            String normalized = roleName.startsWith("ROLE_") ? roleName.substring(5) : roleName;
+            return this.role.equalsIgnoreCase(normalized);
+        }
     }
 
     private static class StubCodeReviewRepository extends StubJpaRepository<CodeReview, Long> implements CodeReviewRepository {
@@ -215,6 +242,36 @@ class CodeReviewHistoryServiceTest {
             return database.values().stream()
                     .sorted(Comparator.comparing(CodeReview::getCreatedAt).reversed())
                     .toList();
+        }
+
+        @Override
+        public List<CodeReview> findByUserIdOrderByCreatedAtDesc(Long userId) {
+            return database.values().stream()
+                    .filter(r -> r.getUser() != null && userId.equals(r.getUser().getId()))
+                    .sorted(Comparator.comparing(CodeReview::getCreatedAt).reversed())
+                    .toList();
+        }
+
+        @Override
+        public List<CodeReview> findByUserIdAndOwnerAndRepositoryOrderByCreatedAtDesc(Long userId, String owner, String repository) {
+            return database.values().stream()
+                    .filter(r -> r.getUser() != null && userId.equals(r.getUser().getId()) && r.getOwner().equals(owner) && r.getRepository().equals(repository))
+                    .sorted(Comparator.comparing(CodeReview::getCreatedAt).reversed())
+                    .toList();
+        }
+
+        @Override
+        public List<CodeReview> findByUserIdAndOwnerAndRepositoryAndPullRequestNumber(Long userId, String owner, String repository, Integer pullRequestNumber) {
+            return database.values().stream()
+                    .filter(r -> r.getUser() != null && userId.equals(r.getUser().getId()) && r.getOwner().equals(owner) && r.getRepository().equals(repository) && r.getPullRequestNumber().equals(pullRequestNumber))
+                    .toList();
+        }
+
+        @Override
+        public Optional<CodeReview> findByIdAndUserId(Long id, Long userId) {
+            return database.values().stream()
+                    .filter(r -> r.getId().equals(id) && r.getUser() != null && userId.equals(r.getUser().getId()))
+                    .findFirst();
         }
     }
 

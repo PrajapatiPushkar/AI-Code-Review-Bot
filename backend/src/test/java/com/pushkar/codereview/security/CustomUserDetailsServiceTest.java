@@ -60,6 +60,21 @@ class CustomUserDetailsServiceTest {
     }
 
     @Test
+    void testDeveloperRoleMappedToRoleDeveloper() {
+        User dev = new User("devUser", "dev@example.com", "$2a$10$encodedHash", "DEVELOPER");
+        dev.setId(3L);
+        stubRepository.save(dev);
+
+        UserDetails userDetails = userDetailsService.loadUserByUsername("devUser");
+
+        assertThat(userDetails).isNotNull();
+        assertThat(userDetails.getUsername()).isEqualTo("dev@example.com");
+        assertThat(userDetails.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_DEVELOPER");
+    }
+
+    @Test
     void testMissingUserThrowsUsernameNotFoundException() {
         assertThatThrownBy(() -> userDetailsService.loadUserByUsername("unknown@example.com"))
                 .isInstanceOf(UsernameNotFoundException.class)

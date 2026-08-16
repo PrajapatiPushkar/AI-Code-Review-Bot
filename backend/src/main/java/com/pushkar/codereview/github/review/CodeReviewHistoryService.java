@@ -4,6 +4,8 @@ import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.dto.CodeReviewHistoryResponse;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewRepository;
+import com.pushkar.codereview.security.CurrentUserService;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,9 +16,15 @@ import java.util.List;
 public class CodeReviewHistoryService {
 
     private final CodeReviewRepository repository;
+    private final CurrentUserService currentUserService;
 
     public CodeReviewHistoryService(CodeReviewRepository repository) {
+        this(repository, null);
+    }
+
+    public CodeReviewHistoryService(CodeReviewRepository repository, CurrentUserService currentUserService) {
         this.repository = repository;
+        this.currentUserService = currentUserService;
     }
 
     public CodeReviewHistoryResponse getById(Long id) {
@@ -26,6 +34,15 @@ public class CodeReviewHistoryService {
 
         CodeReview review = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CodeReview record not found with id: " + id));
+
+        if (currentUserService != null && currentUserService.isAuthenticated()) {
+            if (!currentUserService.hasRole("ADMIN")) {
+                Long currentUserId = currentUserService.getCurrentUserId();
+                if (review.getUser() != null && !review.getUser().getId().equals(currentUserId)) {
+                    throw new AccessDeniedException("You do not have permission to access this code review");
+                }
+            }
+        }
 
         return mapToResponse(review);
     }
@@ -38,7 +55,15 @@ public class CodeReviewHistoryService {
             throw new IllegalArgumentException("Repository must not be blank");
         }
 
-        List<CodeReview> reviews = repository.findByOwnerAndRepositoryOrderByCreatedAtDesc(owner, repositoryName);
+        List<CodeReview> reviews;
+        if (currentUserService != null && currentUserService.isAuthenticated() && !currentUserService.hasRole("ADMIN")) {
+            Long currentUserId = currentUserService.getCurrentUserId();
+            reviews = (currentUserId != null)
+                    ? repository.findByUserIdAndOwnerAndRepositoryOrderByCreatedAtDesc(currentUserId, owner, repositoryName)
+                    : List.of();
+        } else {
+            reviews = repository.findByOwnerAndRepositoryOrderByCreatedAtDesc(owner, repositoryName);
+        }
 
         return reviews.stream()
                 .map(this::mapToResponse)
@@ -56,7 +81,15 @@ public class CodeReviewHistoryService {
             throw new IllegalArgumentException("Pull request number must be positive");
         }
 
-        List<CodeReview> reviews = repository.findByOwnerAndRepositoryAndPullRequestNumber(owner, repositoryName, pullRequestNumber);
+        List<CodeReview> reviews;
+        if (currentUserService != null && currentUserService.isAuthenticated() && !currentUserService.hasRole("ADMIN")) {
+            Long currentUserId = currentUserService.getCurrentUserId();
+            reviews = (currentUserId != null)
+                    ? repository.findByUserIdAndOwnerAndRepositoryAndPullRequestNumber(currentUserId, owner, repositoryName, pullRequestNumber)
+                    : List.of();
+        } else {
+            reviews = repository.findByOwnerAndRepositoryAndPullRequestNumber(owner, repositoryName, pullRequestNumber);
+        }
 
         return reviews.stream()
                 .map(this::mapToResponse)

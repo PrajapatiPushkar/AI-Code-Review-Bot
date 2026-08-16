@@ -266,8 +266,13 @@ class GithubPullRequestCodeReviewServiceTest {
 
         @Override
         public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber) {
+            return createInProgressReview(installationId, owner, repositoryName, pullRequestNumber, null);
+        }
+
+        @Override
+        public CodeReview createInProgressReview(Long installationId, String owner, String repositoryName, Integer pullRequestNumber, com.pushkar.codereview.user.User user) {
             this.createdInProgress = true;
-            this.entity = new CodeReview(installationId, owner, repositoryName, pullRequestNumber);
+            this.entity = new CodeReview(installationId, owner, repositoryName, pullRequestNumber, user);
             this.entity.setId(100L);
             this.entity.setStatus(CodeReviewStatus.IN_PROGRESS);
             this.entity.setCreatedAt(Instant.now());
