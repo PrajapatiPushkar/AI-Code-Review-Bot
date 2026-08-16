@@ -74,7 +74,9 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers(
                                 "/code-reviews/**",
-                                "/api/v1/code-reviews/**"
+                                "/api/v1/code-reviews/**",
+                                "/github/installations/**",
+                                "/api/v1/github/installations/**"
                         ).hasAnyRole("USER", "ADMIN", "DEVELOPER")
                         .anyRequest().authenticated()
                 )
