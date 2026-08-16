@@ -135,11 +135,11 @@ class CodeReviewPersistenceServiceTest {
         @Override public T getOne(ID id) { return database.get(id); }
         @Override public T getById(ID id) { return database.get(id); }
         @Override public T getReferenceById(ID id) { return database.get(id); }
+        @Override public java.util.List<T> findAll(org.springframework.data.domain.Sort sort) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> java.util.List<S> findAll(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> java.util.List<S> findAll(org.springframework.data.domain.Example<S> example, org.springframework.data.domain.Sort sort) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> java.util.Optional<S> findOne(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
         @Override public org.springframework.data.domain.Page<T> findAll(org.springframework.data.domain.Pageable pageable) { throw new UnsupportedOperationException(); }
-        @Override public <S extends T> java.util.Optional<S> findOne(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> org.springframework.data.domain.Page<S> findAll(org.springframework.data.domain.Example<S> example, org.springframework.data.domain.Pageable pageable) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> long count(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
         @Override public <S extends T> boolean exists(org.springframework.data.domain.Example<S> example) { throw new UnsupportedOperationException(); }
