@@ -54,4 +54,13 @@ public class GeminiProperties {
     public void setApiBaseUrl(String apiBaseUrl) {
         this.apiBaseUrl = apiBaseUrl;
     }
+
+    @Override
+    public String toString() {
+        return "GeminiProperties{" +
+                "apiKey='" + (apiKey != null && !apiKey.isBlank() ? "[PROTECTED]" : null) + '\'' +
+                ", model='" + model + '\'' +
+                ", apiBaseUrl='" + apiBaseUrl + '\'' +
+                '}';
+    }
 }

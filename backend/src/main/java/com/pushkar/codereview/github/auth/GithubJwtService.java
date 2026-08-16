@@ -31,7 +31,7 @@ public class GithubJwtService {
             throw new IllegalStateException("GitHub App ID is not configured");
         }
 
-        String rawPrivateKey = githubProperties.getPrivateKey();
+        String rawPrivateKey = loadPrivateKeyContent();
         if (rawPrivateKey == null || rawPrivateKey.isBlank()) {
             throw new IllegalStateException("GitHub App private key is not configured");
         }
@@ -48,6 +48,43 @@ public class GithubJwtService {
                 .withIssuedAt(Date.from(issuedAt))
                 .withExpiresAt(Date.from(expiresAt))
                 .sign(algorithm);
+    }
+
+    public String loadPrivateKeyContent() {
+        if (githubProperties == null) {
+            return null;
+        }
+        String rawPrivateKey = githubProperties.getPrivateKey();
+        if (rawPrivateKey != null && !rawPrivateKey.isBlank()) {
+            return unescapeKey(rawPrivateKey);
+        }
+
+        String path = githubProperties.getPrivateKeyPath();
+        if (path != null && !path.isBlank()) {
+            try {
+                if (path.startsWith("classpath:")) {
+                    String resourcePath = path.substring("classpath:".length());
+                    try (java.io.InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+                        if (is != null) {
+                            return unescapeKey(new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                    }
+                } else {
+                    java.nio.file.Path filePath = java.nio.file.Path.of(path);
+                    if (java.nio.file.Files.exists(filePath)) {
+                        return unescapeKey(java.nio.file.Files.readString(filePath, java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to load GitHub private key from file path: " + path);
+            }
+        }
+        return null;
+    }
+
+    private String unescapeKey(String key) {
+        if (key == null) return null;
+        return key.replace("\\n", "\n").replace("\\r", "\r");
     }
 
     private RSAPrivateKey parsePrivateKey(String pem) {
@@ -69,7 +106,7 @@ public class GithubJwtService {
                 return (RSAPrivateKey) keyFactory.generatePrivate(pkcs1KeySpec);
             }
         } catch (Exception e) {
-            throw new IllegalStateException("Invalid RSA private key configuration", e);
+            throw new IllegalStateException("Invalid RSA private key configuration");
         }
     }
 

@@ -66,4 +66,14 @@ public class JwtProperties {
     public void setIssuer(String issuer) {
         this.issuer = issuer;
     }
+
+    @Override
+    public String toString() {
+        return "JwtProperties{" +
+                "secret='" + (secret != null && !secret.isBlank() ? "[PROTECTED]" : null) + '\'' +
+                ", expirationMs=" + expirationMs +
+                ", tokenType='" + tokenType + '\'' +
+                ", issuer='" + issuer + '\'' +
+                '}';
+    }
 }

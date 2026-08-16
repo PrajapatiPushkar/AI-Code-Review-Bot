@@ -94,6 +94,15 @@ class GithubJwtServiceTest {
     }
 
     @Test
+    void testGenerateAppJwt_EscapedNewlines_Success() {
+        String escapedKey = validPemPrivateKey.replace("\n", "\\n");
+        githubProperties.setPrivateKey(escapedKey);
+
+        String jwtToken = githubJwtService.generateAppJwt();
+        assertThat(jwtToken).isNotNull().isNotBlank();
+    }
+
+    @Test
     void testGithubAppAuthenticatorDelegation() {
         GithubAppAuthenticator authenticator = new GithubAppAuthenticator(githubJwtService);
         String jwtToken = authenticator.getAppJwt();

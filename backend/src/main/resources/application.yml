@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${PORT:8080}
   servlet:
     context-path: /api/v1
 
@@ -10,22 +10,22 @@ spring:
     name: ai-code-review-bot
 
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:code_review_bot}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:code_review_bot}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:postgres}}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.postgresql.Driver}
 
   jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    database-platform: ${SPRING_JPA_DATABASE_PLATFORM:org.hibernate.dialect.PostgreSQLDialect}
     hibernate:
-      ddl-auto: validate
-    show-sql: true
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
 
   flyway:
-    enabled: true
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
     baseline-on-migrate: true
     locations: classpath:db/migration
 
@@ -36,12 +36,13 @@ management:
         include: health, info, metrics
   endpoint:
     health:
-      show-details: always
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:never}
 
 github:
   app-id: ${GITHUB_APP_ID:}
   app-name: ${GITHUB_APP_NAME:ai-code-review-bot}
   private-key: ${GITHUB_PRIVATE_KEY:}
+  private-key-path: ${GITHUB_PRIVATE_KEY_PATH:}
   webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
   api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
 
@@ -55,6 +56,3 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
   token-type: ${JWT_TOKEN_TYPE:Bearer}
   issuer: ${JWT_ISSUER:ai-code-review-bot}
-
-
-

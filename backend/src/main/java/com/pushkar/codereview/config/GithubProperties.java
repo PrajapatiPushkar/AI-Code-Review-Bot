@@ -13,6 +13,7 @@ public class GithubProperties {
     private String appId;
     private String appName;
     private String privateKey;
+    private String privateKeyPath;
     private String webhookSecret;
 
     @NotBlank(message = "GitHub API base URL must not be blank")
@@ -45,6 +46,14 @@ public class GithubProperties {
         this.privateKey = privateKey;
     }
 
+    public String getPrivateKeyPath() {
+        return privateKeyPath;
+    }
+
+    public void setPrivateKeyPath(String privateKeyPath) {
+        this.privateKeyPath = privateKeyPath;
+    }
+
     public String getWebhookSecret() {
         return webhookSecret;
     }
@@ -59,5 +68,17 @@ public class GithubProperties {
 
     public void setApiBaseUrl(String apiBaseUrl) {
         this.apiBaseUrl = apiBaseUrl;
+    }
+
+    @Override
+    public String toString() {
+        return "GithubProperties{" +
+                "appId='" + appId + '\'' +
+                ", appName='" + appName + '\'' +
+                ", privateKey='" + (privateKey != null && !privateKey.isBlank() ? "[PROTECTED]" : null) + '\'' +
+                ", privateKeyPath='" + privateKeyPath + '\'' +
+                ", webhookSecret='" + (webhookSecret != null && !webhookSecret.isBlank() ? "[PROTECTED]" : null) + '\'' +
+                ", apiBaseUrl='" + apiBaseUrl + '\'' +
+                '}';
     }
 }

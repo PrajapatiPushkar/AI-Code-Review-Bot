@@ -278,6 +278,20 @@ class CodeReviewHistoryServiceTest {
         public Optional<CodeReview> findByIdAndUserId(Long id, Long userId) {
             return database.values().stream().filter(r -> r.getId().equals(id) && r.getUser() != null && userId.equals(r.getUser().getId())).findFirst();
         }
+
+        @Override
+        public List<CodeReview> findDuplicateReviews(Long userId, Long installationId, String owner, String repository, Integer pullRequestNumber, String commitSha, List<CodeReviewStatus> statuses) {
+            return database.values().stream()
+                    .filter(r -> userId == null || (r.getUser() != null && userId.equals(r.getUser().getId())))
+                    .filter(r -> installationId != null && installationId.equals(r.getInstallationId()))
+                    .filter(r -> owner != null && owner.equalsIgnoreCase(r.getOwner()))
+                    .filter(r -> repository != null && repository.equalsIgnoreCase(r.getRepository()))
+                    .filter(r -> pullRequestNumber != null && pullRequestNumber.equals(r.getPullRequestNumber()))
+                    .filter(r -> commitSha == null || r.getCommitSha() == null || commitSha.equalsIgnoreCase(r.getCommitSha()))
+                    .filter(r -> statuses != null && statuses.contains(r.getStatus()))
+                    .sorted(Comparator.comparing(CodeReview::getId).reversed())
+                    .toList();
+        }
     }
 
     private static abstract class StubJpaRepository<T, ID> implements org.springframework.data.jpa.repository.JpaRepository<T, ID>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<T> {
