@@ -1,6 +1,7 @@
 package com.pushkar.codereview.github;
 
-import com.pushkar.codereview.github.dto.GithubInstallationCreateRequest;
+import com.pushkar.codereview.github.client.dto.GithubPullRequestResponse;
+import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import jakarta.validation.Valid;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -47,6 +49,27 @@ public class GithubInstallationController {
     @GetMapping("/user/{userId}")
     public ResponseEntity<List<GithubInstallationResponse>> getInstallationsByUserId(@PathVariable Long userId) {
         List<GithubInstallationResponse> responses = githubInstallationService.getInstallationsByUserId(userId);
+        return ResponseEntity.ok(responses);
+    }
+
+    @GetMapping("/{installationId}/repositories")
+    public ResponseEntity<List<GithubRepositoryResponse>> getRepositories(
+            @PathVariable Long installationId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "30") int perPage) {
+        List<GithubRepositoryResponse> responses = githubInstallationService.getRepositoriesForInstallation(installationId, page, perPage);
+        return ResponseEntity.ok(responses);
+    }
+
+    @GetMapping("/{installationId}/repositories/{owner}/{repository}/pull-requests")
+    public ResponseEntity<List<GithubPullRequestResponse>> getPullRequests(
+            @PathVariable Long installationId,
+            @PathVariable String owner,
+            @PathVariable String repository,
+            @RequestParam(defaultValue = "all") String state,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "30") int perPage) {
+        List<GithubPullRequestResponse> responses = githubInstallationService.getPullRequestsForRepository(installationId, owner, repository, state, page, perPage);
         return ResponseEntity.ok(responses);
     }
 

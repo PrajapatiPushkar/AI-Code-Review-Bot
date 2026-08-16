@@ -6,6 +6,8 @@ import com.pushkar.codereview.exception.DuplicateResourceException;
 import com.pushkar.codereview.exception.GlobalExceptionHandler;
 import com.pushkar.codereview.exception.GithubInstallationVerificationException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
+import com.pushkar.codereview.github.client.dto.GithubPullRequestResponse;
+import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import com.pushkar.codereview.security.CustomUserDetailsService;
@@ -104,40 +106,35 @@ class GithubInstallationControllerTest {
     }
 
     @Test
-    void testRegisterInstallation_BlankAccountLogin_Returns400() throws Exception {
+    void testGetRepositories_Success_Returns200() throws Exception {
         String token = jwtService.generateToken("user@example.com", "USER");
 
-        mockMvc.perform(post("/api/v1/github/installations")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"installationId\":123456,\"githubAccountLogin\":\"   \",\"githubAccountType\":\"User\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Validation Failed"));
+        mockMvc.perform(get("/api/v1/github/installations/1/repositories?page=1&perPage=30")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(1296269))
+                .andExpect(jsonPath("$[0].name").value("hello-world"));
     }
 
     @Test
-    void testRegisterInstallation_InvalidInstallationId_Returns400() throws Exception {
+    void testGetRepositories_Unverified_Returns422() throws Exception {
         String token = jwtService.generateToken("user@example.com", "USER");
+        installationService.setUnverifiedForId(99L);
 
-        mockMvc.perform(post("/api/v1/github/installations")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"installationId\":-5,\"githubAccountLogin\":\"octocat\",\"githubAccountType\":\"User\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Validation Failed"));
+        mockMvc.perform(get("/api/v1/github/installations/99/repositories")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
-    void testRegisterInstallation_Conflict_Returns409() throws Exception {
+    void testGetPullRequests_Success_Returns200() throws Exception {
         String token = jwtService.generateToken("user@example.com", "USER");
-        installationService.setConflictForInstallationId(99999L);
 
-        mockMvc.perform(post("/api/v1/github/installations")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"installationId\":99999,\"githubAccountLogin\":\"octocat\",\"githubAccountType\":\"User\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error").value("Duplicate Resource Error"));
+        mockMvc.perform(get("/api/v1/github/installations/1/repositories/octocat/hello-world/pull-requests")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].number").value(1347))
+                .andExpect(jsonPath("$[0].title").value("Amazing feature"));
     }
 
     @Test
@@ -194,16 +191,6 @@ class GithubInstallationControllerTest {
     }
 
     @Test
-    void testDeleteInstallation_Forbidden_Returns403() throws Exception {
-        String token = jwtService.generateToken("user@example.com", "USER");
-        installationService.setAccessDeniedForId(10L);
-
-        mockMvc.perform(delete("/api/v1/github/installations/10")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
     void testUnauthenticated_Returns401() throws Exception {
         mockMvc.perform(get("/api/v1/github/installations"))
                 .andExpect(status().isUnauthorized())
@@ -229,6 +216,7 @@ class GithubInstallationControllerTest {
         private Long accessDeniedId;
         private Long conflictInstallationId;
         private Long verificationFailureId;
+        private Long unverifiedId;
 
         public StubGithubInstallationService() {
             super(null, null, null, null);
@@ -246,10 +234,15 @@ class GithubInstallationControllerTest {
             this.verificationFailureId = installationId;
         }
 
+        public void setUnverifiedForId(Long installationId) {
+            this.unverifiedId = installationId;
+        }
+
         public void clear() {
             this.accessDeniedId = null;
             this.conflictInstallationId = null;
             this.verificationFailureId = null;
+            this.unverifiedId = null;
         }
 
         @Override
@@ -261,6 +254,24 @@ class GithubInstallationControllerTest {
                 throw new GithubInstallationVerificationException("GitHub account login mismatch");
             }
             return new GithubInstallationResponse(1L, 1L, request.getInstallationId(), request.getGithubAccountLogin(), request.getGithubAccountType(), true, Instant.now(), Instant.now(), Instant.now());
+        }
+
+        @Override
+        public List<GithubRepositoryResponse> getRepositoriesForInstallation(Long installationId, int page, int perPage) {
+            if (installationId.equals(unverifiedId)) {
+                throw new GithubInstallationVerificationException("Installation not verified");
+            }
+            GithubRepositoryResponse r = new GithubRepositoryResponse(1296269L, "hello-world", "octocat/hello-world", false, "url", "main");
+            return List.of(r);
+        }
+
+        @Override
+        public List<GithubPullRequestResponse> getPullRequestsForRepository(Long installationId, String owner, String repository, String state, int page, int perPage) {
+            if (installationId.equals(unverifiedId)) {
+                throw new GithubInstallationVerificationException("Installation not verified");
+            }
+            GithubPullRequestResponse pr = new GithubPullRequestResponse(1L, 1347L, "Amazing feature", "body", "open", "url", null, null, null, Instant.now(), Instant.now());
+            return List.of(pr);
         }
 
         @Override

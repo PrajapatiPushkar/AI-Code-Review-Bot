@@ -14,6 +14,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -54,6 +55,34 @@ class GithubPullRequestClientTest {
         mockServer = MockRestServiceServer.bindTo(builder).build();
 
         pullRequestClient = new GithubPullRequestClient(githubProperties, stubTokenService, builder);
+    }
+
+    @Test
+    void testGetPullRequests_Success() {
+        String responseJson = """
+                [
+                  {
+                    "id": 1,
+                    "number": 1347,
+                    "title": "Amazing new feature",
+                    "state": "open",
+                    "html_url": "https://github.com/octocat/hello-world/pull/1347"
+                  }
+                ]
+                """;
+
+        mockServer.expect(requestTo(BASE_URL + "/repos/octocat/hello-world/pulls?state=all&page=1&per_page=30"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer " + MOCK_TOKEN))
+                .andRespond(withSuccess(responseJson, MediaType.APPLICATION_JSON));
+
+        List<GithubPullRequestResponse> responses = pullRequestClient.getPullRequests(INSTALLATION_ID, OWNER, REPO, "all", 1, 30);
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).getNumber()).isEqualTo(1347L);
+        assertThat(responses.get(0).getTitle()).isEqualTo("Amazing new feature");
+
+        mockServer.verify();
     }
 
     @Test

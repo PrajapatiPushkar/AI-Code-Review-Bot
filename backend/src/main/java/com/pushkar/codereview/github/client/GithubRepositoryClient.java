@@ -4,6 +4,7 @@ import com.pushkar.codereview.config.GithubProperties;
 import com.pushkar.codereview.exception.GithubApiException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.auth.GithubInstallationTokenService;
+import com.pushkar.codereview.github.client.dto.GithubInstallationRepositoriesResponse;
 import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -29,6 +30,47 @@ public class GithubRepositoryClient {
     public GithubRepositoryClient(RestClient restClient, GithubInstallationTokenService tokenService) {
         this.restClient = restClient;
         this.tokenService = tokenService;
+    }
+
+    public GithubInstallationRepositoriesResponse getInstallationRepositories(Long installationId, int page, int perPage) {
+        if (installationId == null || installationId <= 0) {
+            throw new IllegalArgumentException("Installation ID must be a positive number");
+        }
+        if (page < 1) {
+            throw new IllegalArgumentException("Page number must be at least 1");
+        }
+        if (perPage < 1 || perPage > 100) {
+            throw new IllegalArgumentException("Per-page limit must be between 1 and 100");
+        }
+
+        String token = tokenService.getInstallationAccessToken(installationId);
+        if (token == null || token.isBlank()) {
+            throw new GithubApiException("Failed to obtain installation access token for installation ID: " + installationId, 401);
+        }
+
+        try {
+            return restClient.get()
+                    .uri("/installation/repositories?page={page}&per_page={perPage}", page, perPage)
+                    .header("Authorization", "Bearer " + token)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        int status = response.getStatusCode().value();
+                        if (status == 401 || status == 403) {
+                            throw new GithubApiException("GitHub API authentication/authorization failed (HTTP " + status + ")", status);
+                        } else if (status == 404) {
+                            throw new ResourceNotFoundException("GitHub installation not found on GitHub with ID: " + installationId);
+                        } else if (status >= 500 && status < 600) {
+                            throw new GithubApiException("GitHub API server error (HTTP " + status + ")", 502);
+                        } else {
+                            throw new GithubApiException("GitHub API request failed with status HTTP " + status, status);
+                        }
+                    })
+                    .body(GithubInstallationRepositoriesResponse.class);
+        } catch (GithubApiException | ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GithubApiException("Failed to communicate with GitHub API", 502, e);
+        }
     }
 
     public GithubRepositoryResponse getRepository(Long installationId, String owner, String repository) {

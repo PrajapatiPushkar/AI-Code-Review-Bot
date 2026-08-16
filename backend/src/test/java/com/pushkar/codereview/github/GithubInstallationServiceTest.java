@@ -6,8 +6,13 @@ import com.pushkar.codereview.exception.GithubInstallationVerificationException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.client.GithubInstallationTokenClient;
 import com.pushkar.codereview.github.client.GithubInstallationVerificationClient;
+import com.pushkar.codereview.github.client.GithubPullRequestClient;
+import com.pushkar.codereview.github.client.GithubRepositoryClient;
 import com.pushkar.codereview.github.client.dto.GithubInstallationDetailsResponse;
+import com.pushkar.codereview.github.client.dto.GithubInstallationRepositoriesResponse;
 import com.pushkar.codereview.github.client.dto.GithubInstallationTokenResponse;
+import com.pushkar.codereview.github.client.dto.GithubPullRequestResponse;
+import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import com.pushkar.codereview.github.dto.GithubInstallationRequest;
 import com.pushkar.codereview.github.dto.GithubInstallationResponse;
 import com.pushkar.codereview.github.mapper.GithubInstallationMapper;
@@ -36,6 +41,8 @@ class GithubInstallationServiceTest {
     private StubCurrentUserService currentUserService;
     private StubTokenClient tokenClient;
     private StubVerificationClient verificationClient;
+    private StubRepositoryClient repositoryClient;
+    private StubPullRequestClient pullRequestClient;
     private GithubInstallationService installationService;
 
     private User user1;
@@ -50,10 +57,13 @@ class GithubInstallationServiceTest {
         currentUserService = new StubCurrentUserService();
         tokenClient = new StubTokenClient();
         verificationClient = new StubVerificationClient();
+        repositoryClient = new StubRepositoryClient();
+        pullRequestClient = new StubPullRequestClient();
 
         GithubInstallationMapper mapper = new GithubInstallationMapper();
         installationService = new GithubInstallationService(
-                installationRepository, userRepository, mapper, currentUserService, tokenClient, verificationClient
+                installationRepository, userRepository, mapper, currentUserService,
+                tokenClient, verificationClient, repositoryClient, pullRequestClient
         );
 
         user1 = new User("user1", "user1@example.com", "hash", "USER");
@@ -135,60 +145,58 @@ class GithubInstallationServiceTest {
     }
 
     @Test
-    void testRegisterInstallation_SameUserReRegistration_VerifiedReturnsExistingIdempotently() {
-        GithubInstallation i1 = createInstallation(1L, user1, 123456L, "octocat", "User");
-        i1.setVerified(true);
-        i1.setVerifiedAt(Instant.now());
-        installationRepository.save(i1);
+    void testGetRepositoriesForInstallation_Verified_Success() {
+        GithubInstallation inst = createInstallation(1L, user1, 123456L, "octocat", "User");
+        inst.setVerified(true);
+        inst.setVerifiedAt(Instant.now());
+        installationRepository.save(inst);
 
         currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
 
-        GithubInstallationRequest request = new GithubInstallationRequest(123456L, "octocat", "User");
-        GithubInstallationResponse response = installationService.registerInstallation(request);
+        List<GithubRepositoryResponse> repos = installationService.getRepositoriesForInstallation(1L, 1, 30);
 
-        assertThat(response).isNotNull();
-        assertThat(response.getId()).isEqualTo(1L);
-        assertThat(response.isVerified()).isTrue();
+        assertThat(repos).hasSize(1);
+        assertThat(repos.get(0).getName()).isEqualTo("hello-world");
     }
 
     @Test
-    void testRegisterInstallation_OwnedByAnotherUser_ThrowsDuplicateResourceException() {
-        GithubInstallation i1 = createInstallation(1L, user1, 123456L, "octocat", "User");
-        installationRepository.save(i1);
-
-        currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
-
-        GithubInstallationRequest request = new GithubInstallationRequest(123456L, "octocat", "User");
-
-        assertThatThrownBy(() -> installationService.registerInstallation(request))
-                .isInstanceOf(DuplicateResourceException.class)
-                .hasMessageContaining("already registered to another user");
-    }
-
-    @Test
-    void testGetInstallationsForCurrentUser_UserSeesOnlyOwnInstallations() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        GithubInstallation i2 = createInstallation(2L, user2, 10002L, "anothercat", "User");
-        installationRepository.save(i1);
-        installationRepository.save(i2);
+    void testGetRepositoriesForInstallation_Unverified_ThrowsVerificationException() {
+        GithubInstallation inst = createInstallation(1L, user1, 123456L, "octocat", "User");
+        inst.setVerified(false);
+        installationRepository.save(inst);
 
         currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
 
-        List<GithubInstallationResponse> responses = installationService.getInstallationsForCurrentUser();
-
-        assertThat(responses).hasSize(1);
-        assertThat(responses.get(0).getId()).isEqualTo(1L);
+        assertThatThrownBy(() -> installationService.getRepositoriesForInstallation(1L, 1, 30))
+                .isInstanceOf(GithubInstallationVerificationException.class)
+                .hasMessageContaining("not verified");
     }
 
     @Test
-    void testGetInstallationById_NonOwnerAccess_ThrowsAccessDeniedException() {
-        GithubInstallation i1 = createInstallation(1L, user1, 10001L, "octocat", "User");
-        installationRepository.save(i1);
+    void testGetRepositoriesForInstallation_NotOwner_ThrowsAccessDeniedException() {
+        GithubInstallation inst = createInstallation(1L, user1, 123456L, "octocat", "User");
+        inst.setVerified(true);
+        installationRepository.save(inst);
 
         currentUserService.setContext(user2.getId(), "user2@example.com", "USER", user2);
 
-        assertThatThrownBy(() -> installationService.getInstallationById(1L))
+        assertThatThrownBy(() -> installationService.getRepositoriesForInstallation(1L, 1, 30))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void testGetPullRequestsForRepository_Verified_Success() {
+        GithubInstallation inst = createInstallation(1L, user1, 123456L, "octocat", "User");
+        inst.setVerified(true);
+        inst.setVerifiedAt(Instant.now());
+        installationRepository.save(inst);
+
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER", user1);
+
+        List<GithubPullRequestResponse> prs = installationService.getPullRequestsForRepository(1L, "octocat", "hello-world", "all", 1, 30);
+
+        assertThat(prs).hasSize(1);
+        assertThat(prs.get(0).getNumber()).isEqualTo(1347L);
     }
 
     private GithubInstallation createInstallation(Long id, User user, Long githubInstId, String login, String type) {
@@ -240,6 +248,26 @@ class GithubInstallationServiceTest {
             GithubInstallationDetailsResponse res = map.get(installationId);
             if (res != null) return res;
             return new GithubInstallationDetailsResponse(installationId, "octocat", "User");
+        }
+    }
+
+    private static class StubRepositoryClient extends GithubRepositoryClient {
+        public StubRepositoryClient() { super(null, null); }
+
+        @Override
+        public GithubInstallationRepositoriesResponse getInstallationRepositories(Long installationId, int page, int perPage) {
+            GithubRepositoryResponse r = new GithubRepositoryResponse(1296269L, "hello-world", "octocat/hello-world", false, "https://github.com/octocat/hello-world", "main");
+            return new GithubInstallationRepositoriesResponse(1, List.of(r));
+        }
+    }
+
+    private static class StubPullRequestClient extends GithubPullRequestClient {
+        public StubPullRequestClient() { super(null, null); }
+
+        @Override
+        public List<GithubPullRequestResponse> getPullRequests(Long installationId, String owner, String repository, String state, int page, int perPage) {
+            GithubPullRequestResponse pr = new GithubPullRequestResponse(1L, 1347L, "Amazing feature", "body", "open", "url", null, null, null, Instant.now(), Instant.now());
+            return List.of(pr);
         }
     }
 

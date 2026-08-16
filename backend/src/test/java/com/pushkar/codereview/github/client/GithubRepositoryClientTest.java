@@ -4,6 +4,7 @@ import com.pushkar.codereview.config.GithubProperties;
 import com.pushkar.codereview.exception.GithubApiException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.auth.GithubInstallationTokenService;
+import com.pushkar.codereview.github.client.dto.GithubInstallationRepositoriesResponse;
 import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,39 @@ class GithubRepositoryClientTest {
         mockServer = MockRestServiceServer.bindTo(builder).build();
 
         repositoryClient = new GithubRepositoryClient(githubProperties, stubTokenService, builder);
+    }
+
+    @Test
+    void testGetInstallationRepositories_Success() {
+        String responseJson = """
+                {
+                  "total_count": 1,
+                  "repositories": [
+                    {
+                      "id": 1296269,
+                      "name": "hello-world",
+                      "full_name": "octocat/hello-world",
+                      "private": false,
+                      "html_url": "https://github.com/octocat/hello-world",
+                      "default_branch": "main"
+                    }
+                  ]
+                }
+                """;
+
+        mockServer.expect(requestTo(BASE_URL + "/installation/repositories?page=1&per_page=30"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer " + MOCK_TOKEN))
+                .andRespond(withSuccess(responseJson, MediaType.APPLICATION_JSON));
+
+        GithubInstallationRepositoriesResponse response = repositoryClient.getInstallationRepositories(INSTALLATION_ID, 1, 30);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getTotalCount()).isEqualTo(1);
+        assertThat(response.getRepositories()).hasSize(1);
+        assertThat(response.getRepositories().get(0).getName()).isEqualTo("hello-world");
+
+        mockServer.verify();
     }
 
     @Test
