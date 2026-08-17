@@ -9,6 +9,8 @@ import com.pushkar.codereview.github.client.dto.GithubRepositoryResponse;
 import com.pushkar.codereview.github.review.dto.PullRequestReviewContext;
 import com.pushkar.codereview.github.review.dto.ReviewInput;
 import com.pushkar.codereview.github.review.mapper.ReviewInputMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,8 @@ import java.util.List;
 
 @Service
 public class GithubPullRequestReviewService {
+
+    private static final Logger log = LoggerFactory.getLogger(GithubPullRequestReviewService.class);
 
     private final GithubRepositoryClient repositoryClient;
     private final GithubPullRequestClient pullRequestClient;
@@ -53,6 +57,9 @@ public class GithubPullRequestReviewService {
                                                     long pullRequestNumber) {
         validateInputs(installationId, owner, repository, pullRequestNumber);
 
+        log.info("Fetching GitHub PR review context for installationId={}, owner={}, repo={}, prNumber={}",
+                installationId, owner, repository, pullRequestNumber);
+
         GithubRepositoryResponse repositoryResponse = repositoryClient.getRepository(installationId, owner, repository);
         GithubPullRequestResponse pullRequestResponse = pullRequestClient.getPullRequest(installationId, owner, repository, pullRequestNumber);
         List<GithubPullRequestFileResponse> changedFiles = filesClient.getChangedFiles(installationId, owner, repository, pullRequestNumber);
@@ -60,6 +67,9 @@ public class GithubPullRequestReviewService {
         if (changedFiles == null) {
             changedFiles = Collections.emptyList();
         }
+
+        log.info("Retrieved GitHub context for repository={}/{}, prNumber={}: changedFilesCount={}",
+                owner, repository, pullRequestNumber, changedFiles.size());
 
         return new PullRequestReviewContext(repositoryResponse, pullRequestResponse, changedFiles);
     }

@@ -4,6 +4,8 @@ import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.review.dto.ReviewFinding;
 import com.pushkar.codereview.github.review.dto.ReviewFindingSeverity;
 import com.pushkar.codereview.user.User;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +14,8 @@ import java.util.List;
 
 @Service
 public class CodeReviewPersistenceService {
+
+    private static final Logger log = LoggerFactory.getLogger(CodeReviewPersistenceService.class);
 
     private final CodeReviewRepository repository;
     private final CodeReviewFindingRepository findingRepository;
@@ -41,7 +45,10 @@ public class CodeReviewPersistenceService {
         review.setStatus(CodeReviewStatus.IN_PROGRESS);
         review.setCreatedAt(Instant.now());
         review.setCompletedAt(null);
-        return repository.save(review);
+        CodeReview saved = repository.save(review);
+        log.info("Created IN_PROGRESS review record [reviewId={}] for repository={}/{}, prNumber={}",
+                saved.getId(), owner, repositoryName, pullRequestNumber);
+        return saved;
     }
 
     @Transactional(readOnly = true)
@@ -86,7 +93,9 @@ public class CodeReviewPersistenceService {
                 f.getSuggestion()
         )).toList();
 
-        return findingRepository.saveAll(entities);
+        List<CodeReviewFinding> saved = findingRepository.saveAll(entities);
+        log.info("Persisted {} findings for reviewId={}", saved.size(), reviewId);
+        return saved;
     }
 
     @Transactional
@@ -98,7 +107,9 @@ public class CodeReviewPersistenceService {
         review.setTotalFindings(totalFindings);
         review.setPostedCommentsCount(postedCommentsCount);
         review.setCompletedAt(Instant.now());
-        return repository.save(review);
+        CodeReview updated = repository.save(review);
+        log.info("Marked reviewId={} as COMPLETED: totalFindings={}, postedComments={}", reviewId, totalFindings, postedCommentsCount);
+        return updated;
     }
 
     @Transactional
@@ -110,6 +121,8 @@ public class CodeReviewPersistenceService {
             review.setReviewSummary("FAILED: " + errorMessage);
         }
         review.setCompletedAt(Instant.now());
-        return repository.save(review);
+        CodeReview updated = repository.save(review);
+        log.warn("Marked reviewId={} as FAILED: {}", reviewId, errorMessage);
+        return updated;
     }
 }

@@ -177,7 +177,90 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml stop
 
 ---
 
-## 6. Running Test Suite
+## 6. Production Observability & Monitoring Guide
+
+Lesson 42 introduces production observability foundations for the backend service without exposing sensitive configuration or requiring external platform agents.
+
+### Available Actuator & Health Endpoints
+
+| Endpoint | Context Path Route | Auth Required | Description |
+|---|---|---|---|
+| `/actuator/health` | `/api/v1/actuator/health` | Public | Overall service health (`UP`/`DOWN`). In production, sensitive component details are suppressed (`show-details: never`). |
+| `/actuator/health/liveness` | `/api/v1/actuator/health/liveness` | Public | Kubernetes / Docker container liveness probe (`UP`). |
+| `/actuator/health/readiness` | `/api/v1/actuator/health/readiness` | Public | Container readiness probe verifying backend is ready to process requests (`UP`). |
+| `/actuator/info` | `/api/v1/actuator/info` | Public | Application metadata (version, build name). Sensitive environment properties are disabled. |
+| `/actuator/metrics` | `/api/v1/actuator/metrics` | Public | Application-level Micrometer metrics summary and metric keys. |
+| `/health` | `/api/v1/health` | Public | Legacy simple JSON status endpoint. |
+
+> [!SECURITY]
+> Sensitive Actuator endpoints (`/actuator/env`, `/actuator/configprops`, `/actuator/beans`, `/actuator/heapdump`, `/actuator/threaddump`) are unexposed to ensure configuration properties and secrets are never leaked.
+
+---
+
+### Request Correlation ID (`X-Correlation-ID`)
+
+- Every incoming HTTP request is assigned a Correlation ID via `CorrelationIdFilter`.
+- If an incoming `X-Correlation-ID` or `X-Request-ID` header is present and valid, it is preserved; otherwise, a UUID is automatically generated.
+- The Correlation ID is returned in the response header `X-Correlation-ID`.
+- Log statements printed during HTTP handling include `[correlationId=...]` via SLF4J MDC (`correlationId`).
+- For asynchronous code reviews, the triggering HTTP request's Correlation ID is explicitly passed to the worker thread MDC, allowing full request-to-background review traceability.
+
+---
+
+### Micrometer Application Metrics
+
+Custom application metrics are recorded in `CodeReviewMetrics` and exposed via Spring Boot Actuator at `/actuator/metrics`:
+
+- `code_review.submissions.total` (Counter, tags: `type=new`, `type=duplicate`): Count of code review requests received.
+- `code_review.completed.total` (Counter): Count of successfully completed code reviews.
+- `code_review.failed.total` (Counter): Count of code review executions that encountered exceptions.
+- `code_review.execution.time` (Timer): Duration (in milliseconds) of asynchronous review execution from start to finish.
+- `code_review.findings.total` (Counter): Total number of AI findings generated.
+- `code_review.comments.total` (Counter): Total number of inline review comments posted to GitHub PRs.
+
+To query a specific metric via curl:
+```bash
+curl http://localhost:8080/api/v1/actuator/metrics/code_review.execution.time
+```
+
+---
+
+### Production Log Traceability & Secret Masking
+
+- All logs adhere to structured production logging practices.
+- **Sensitive Masking Rules**: JWT tokens, GitHub Private Keys, Installation Access Tokens, API Keys (`GEMINI_API_KEY`), and Database Passwords are NEVER written to logs or MDC.
+- Request headers and raw payload bodies containing credentials are explicitly excluded from logging.
+
+---
+
+### Troubleshooting a Failed Code Review
+
+When a code review fails or completes with unexpected results, troubleshoot using the **Review ID** and **Correlation ID**:
+
+1. **Obtain Correlation ID or Review ID**:
+   Check the `X-Correlation-ID` response header returned to the caller, or locate the `reviewId` in the API response or database record.
+
+2. **Search Production Container Logs by Correlation ID**:
+   ```bash
+   docker compose logs backend | grep "correlationId=abc123-def456"
+   ```
+   This trace displays every HTTP request entry, JWT validation, GitHub API fetch, Gemini AI review call, and response completion tied to that request.
+
+3. **Search Async Background Execution Logs by Review ID**:
+   ```bash
+   docker compose logs backend | grep "reviewId=42"
+   ```
+   This trace exposes the async review lifecycle:
+   - `Starting async code review execution: reviewId=42, repository=octocat/hello-world, pullRequestNumber=10`
+   - `Fetching GitHub PR review context...`
+   - `Executing Gemini AI code review request for model=gemini-2.5-flash...`
+   - `Persisted N findings for reviewId=42`
+   - `Posted N review comments to GitHub PR #10...`
+   - `Marked reviewId=42 as COMPLETED (or FAILED: <error message>)`
+
+---
+
+## 7. Running Test Suite
 
 Run full backend unit and integration test suite:
 

@@ -49,6 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @Import({
         SecurityConfig.class,
+        CorrelationIdFilter.class,
         CustomUserDetailsService.class,
         JwtAuthenticationFilter.class,
         JwtService.class,

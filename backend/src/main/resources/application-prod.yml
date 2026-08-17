@@ -8,4 +8,5 @@ spring:
 management:
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: never
+      show-components: never

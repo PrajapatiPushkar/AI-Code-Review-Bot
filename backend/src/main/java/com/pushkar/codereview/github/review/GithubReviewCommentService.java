@@ -5,6 +5,8 @@ import com.pushkar.codereview.github.client.dto.GithubReviewCommentRequest;
 import com.pushkar.codereview.github.client.dto.GithubReviewCommentResponse;
 import com.pushkar.codereview.github.review.dto.ReviewFinding;
 import com.pushkar.codereview.github.review.dto.ReviewResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,6 +15,8 @@ import java.util.List;
 
 @Service
 public class GithubReviewCommentService {
+
+    private static final Logger log = LoggerFactory.getLogger(GithubReviewCommentService.class);
 
     private final GithubPullRequestReviewCommentClient commentClient;
 
@@ -30,8 +34,12 @@ public class GithubReviewCommentService {
 
         List<ReviewFinding> findings = reviewResult.getFindings();
         if (findings == null || findings.isEmpty()) {
+            log.info("No review findings to post for repository={}/{}, prNumber={}", owner, repository, pullRequestNumber);
             return Collections.emptyList();
         }
+
+        log.info("Posting inline review comments to GitHub for repository={}/{}, prNumber={}, totalFindings={}",
+                owner, repository, pullRequestNumber, findings.size());
 
         List<GithubReviewCommentResponse> createdComments = new ArrayList<>();
 
@@ -53,6 +61,9 @@ public class GithubReviewCommentService {
                 }
             }
         }
+
+        log.info("Posted {} review comments to GitHub PR #{} for repository={}/{}",
+                createdComments.size(), pullRequestNumber, owner, repository);
 
         return createdComments;
     }

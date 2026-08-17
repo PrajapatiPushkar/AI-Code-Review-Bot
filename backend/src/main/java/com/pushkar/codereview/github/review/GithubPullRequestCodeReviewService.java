@@ -1,5 +1,6 @@
 package com.pushkar.codereview.github.review;
 
+import com.pushkar.codereview.config.CodeReviewMetrics;
 import com.pushkar.codereview.exception.GithubInstallationVerificationException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.GithubInstallation;
@@ -11,6 +12,10 @@ import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewPersistenceService;
 import com.pushkar.codereview.security.CurrentUserService;
 import com.pushkar.codereview.user.User;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class GithubPullRequestCodeReviewService {
 
+    private static final Logger log = LoggerFactory.getLogger(GithubPullRequestCodeReviewService.class);
+
     private final GithubPullRequestReviewService pullRequestReviewService;
     private final AiReviewService aiReviewService;
     private final GithubReviewCommentService reviewCommentService;
@@ -27,6 +34,7 @@ public class GithubPullRequestCodeReviewService {
     private final CurrentUserService currentUserService;
     private final GithubInstallationRepository githubInstallationRepository;
     private final AsyncCodeReviewRunner asyncCodeReviewRunner;
+    private final CodeReviewMetrics codeReviewMetrics;
 
     private final ConcurrentHashMap<String, Object> reviewLocks = new ConcurrentHashMap<>();
 
@@ -34,7 +42,7 @@ public class GithubPullRequestCodeReviewService {
                                                AiReviewService aiReviewService,
                                                GithubReviewCommentService reviewCommentService,
                                                CodeReviewPersistenceService persistenceService) {
-        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null, null, null);
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null, null, null, null);
     }
 
     public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
@@ -42,7 +50,7 @@ public class GithubPullRequestCodeReviewService {
                                                GithubReviewCommentService reviewCommentService,
                                                CodeReviewPersistenceService persistenceService,
                                                CurrentUserService currentUserService) {
-        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, currentUserService, null, null);
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, currentUserService, null, null, null);
     }
 
     public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
@@ -51,7 +59,7 @@ public class GithubPullRequestCodeReviewService {
                                                CodeReviewPersistenceService persistenceService,
                                                CurrentUserService currentUserService,
                                                GithubInstallationRepository githubInstallationRepository) {
-        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, currentUserService, githubInstallationRepository, null);
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, currentUserService, githubInstallationRepository, null, null);
     }
 
     public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
@@ -61,6 +69,17 @@ public class GithubPullRequestCodeReviewService {
                                                CurrentUserService currentUserService,
                                                GithubInstallationRepository githubInstallationRepository,
                                                AsyncCodeReviewRunner asyncCodeReviewRunner) {
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, currentUserService, githubInstallationRepository, asyncCodeReviewRunner, null);
+    }
+
+    public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
+                                               AiReviewService aiReviewService,
+                                               GithubReviewCommentService reviewCommentService,
+                                               CodeReviewPersistenceService persistenceService,
+                                               CurrentUserService currentUserService,
+                                               GithubInstallationRepository githubInstallationRepository,
+                                               AsyncCodeReviewRunner asyncCodeReviewRunner,
+                                               @Autowired(required = false) CodeReviewMetrics codeReviewMetrics) {
         this.pullRequestReviewService = pullRequestReviewService;
         this.aiReviewService = aiReviewService;
         this.reviewCommentService = reviewCommentService;
@@ -68,6 +87,7 @@ public class GithubPullRequestCodeReviewService {
         this.currentUserService = currentUserService;
         this.githubInstallationRepository = githubInstallationRepository;
         this.asyncCodeReviewRunner = asyncCodeReviewRunner;
+        this.codeReviewMetrics = codeReviewMetrics;
     }
 
     public CodeReviewExecutionResult executeCodeReview(Long installationId,
@@ -89,6 +109,9 @@ public class GithubPullRequestCodeReviewService {
                                                          String repository,
                                                          long pullRequestNumber,
                                                          String commitSha) {
+        log.info("Code review request received for installationId={}, owner={}, repo={}, prNumber={}",
+                requestedInstallationId, owner, repository, pullRequestNumber);
+
         validateInputs(requestedInstallationId, owner, repository, pullRequestNumber);
 
         User currentUser = null;
@@ -158,6 +181,13 @@ public class GithubPullRequestCodeReviewService {
                         int totalFindings = existing.getTotalFindings() != null ? existing.getTotalFindings() : 0;
                         int postedComments = existing.getPostedCommentsCount() != null ? existing.getPostedCommentsCount() : 0;
 
+                        if (codeReviewMetrics != null) {
+                            codeReviewMetrics.recordSubmission(true);
+                        }
+
+                        log.info("Duplicate code review request detected: reviewId={}, owner={}, repo={}, prNumber={}",
+                                existing.getId(), owner, repository, pullRequestNumber);
+
                         return new CodeReviewExecutionResult(
                                 existing.getId(),
                                 existing.getInstallationId(),
@@ -180,6 +210,13 @@ public class GithubPullRequestCodeReviewService {
                 }
 
                 Long reviewId = (reviewRecord != null) ? reviewRecord.getId() : null;
+
+                if (codeReviewMetrics != null) {
+                    codeReviewMetrics.recordSubmission(false);
+                }
+
+                log.info("Initiating code review [reviewId={}] for repository={}/{}, prNumber={}",
+                        reviewId, owner, repository, pullRequestNumber);
 
                 if (asyncCodeReviewRunner != null) {
                     asyncCodeReviewRunner.executeReviewAsync(reviewId, actualGithubInstallationId, owner, repository, pullRequestNumber);

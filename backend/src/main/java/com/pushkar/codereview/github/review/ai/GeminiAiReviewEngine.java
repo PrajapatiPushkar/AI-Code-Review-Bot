@@ -6,6 +6,8 @@ import com.pushkar.codereview.github.review.ai.gemini.dto.GeminiGenerateContentR
 import com.pushkar.codereview.github.review.ai.gemini.dto.GeminiGenerateContentResponse;
 import com.pushkar.codereview.github.review.dto.ReviewInput;
 import com.pushkar.codereview.github.review.dto.ReviewResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -15,6 +17,8 @@ import org.springframework.web.client.RestClient;
 @Component
 @Primary
 public class GeminiAiReviewEngine implements AiReviewEngine {
+
+    private static final Logger log = LoggerFactory.getLogger(GeminiAiReviewEngine.class);
 
     private final RestClient restClient;
     private final GeminiProperties geminiProperties;
@@ -54,6 +58,9 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
             throw new GeminiAiReviewException("Gemini API key is missing or not configured");
         }
 
+        int filesCount = (input.getFiles() != null) ? input.getFiles().size() : 0;
+        log.info("Executing Gemini AI code review request for model={} (filesCount={})", geminiProperties.getModel(), filesCount);
+
         String prompt = promptBuilder.buildPrompt(input);
         GeminiGenerateContentRequest requestPayload = GeminiGenerateContentRequest.fromText(prompt);
 
@@ -77,13 +84,19 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
                 throw new GeminiAiReviewException("Gemini API returned an empty or candidate-less response");
             }
 
-            return responseParser.parseResponse(text);
+            ReviewResult result = responseParser.parseResponse(text);
+            int findingsCount = (result != null && result.getFindings() != null) ? result.getFindings().size() : 0;
+            log.info("Gemini AI review execution completed successfully with {} findings", findingsCount);
+            return result;
 
         } catch (GeminiAiReviewException e) {
+            log.error("Gemini AI code review failed: {}", e.getMessage());
             throw e;
         } catch (HttpStatusCodeException e) {
+            log.error("Gemini API HTTP request failed with status code {}: {}", e.getStatusCode().value(), e.getMessage());
             throw new GeminiAiReviewException("Gemini API HTTP request failed with status code: " + e.getStatusCode().value());
         } catch (Exception e) {
+            log.error("Failed to execute Gemini AI review request: {}", e.getMessage(), e);
             throw new GeminiAiReviewException("Failed to execute Gemini AI review request", e);
         }
     }
