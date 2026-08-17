@@ -26,22 +26,32 @@ public class GithubPullRequestReviewService {
     private final GithubPullRequestClient pullRequestClient;
     private final GithubPullRequestFilesClient filesClient;
     private final ReviewInputMapper reviewInputMapper;
+    private final com.pushkar.codereview.config.resilience.ResilienceExecutor resilienceExecutor;
 
     public GithubPullRequestReviewService(GithubRepositoryClient repositoryClient,
                                          GithubPullRequestClient pullRequestClient,
                                          GithubPullRequestFilesClient filesClient) {
-        this(repositoryClient, pullRequestClient, filesClient, new ReviewInputMapper());
+        this(repositoryClient, pullRequestClient, filesClient, new ReviewInputMapper(), null);
+    }
+
+    public GithubPullRequestReviewService(GithubRepositoryClient repositoryClient,
+                                         GithubPullRequestClient pullRequestClient,
+                                         GithubPullRequestFilesClient filesClient,
+                                         ReviewInputMapper reviewInputMapper) {
+        this(repositoryClient, pullRequestClient, filesClient, reviewInputMapper, null);
     }
 
     @Autowired
     public GithubPullRequestReviewService(GithubRepositoryClient repositoryClient,
                                          GithubPullRequestClient pullRequestClient,
                                          GithubPullRequestFilesClient filesClient,
-                                         ReviewInputMapper reviewInputMapper) {
+                                         ReviewInputMapper reviewInputMapper,
+                                         @Autowired(required = false) com.pushkar.codereview.config.resilience.ResilienceExecutor resilienceExecutor) {
         this.repositoryClient = repositoryClient;
         this.pullRequestClient = pullRequestClient;
         this.filesClient = filesClient;
         this.reviewInputMapper = reviewInputMapper != null ? reviewInputMapper : new ReviewInputMapper();
+        this.resilienceExecutor = resilienceExecutor;
     }
 
     public PullRequestReviewContext getReviewContext(Long installationId,
@@ -60,6 +70,14 @@ public class GithubPullRequestReviewService {
         log.info("Fetching GitHub PR review context for installationId={}, owner={}, repo={}, prNumber={}",
                 installationId, owner, repository, pullRequestNumber);
 
+        if (resilienceExecutor != null) {
+            return resilienceExecutor.executeSupplier("github", () -> fetchContext(installationId, owner, repository, pullRequestNumber));
+        } else {
+            return fetchContext(installationId, owner, repository, pullRequestNumber);
+        }
+    }
+
+    private PullRequestReviewContext fetchContext(Long installationId, String owner, String repository, long pullRequestNumber) {
         GithubRepositoryResponse repositoryResponse = repositoryClient.getRepository(installationId, owner, repository);
         GithubPullRequestResponse pullRequestResponse = pullRequestClient.getPullRequest(installationId, owner, repository, pullRequestNumber);
         List<GithubPullRequestFileResponse> changedFiles = filesClient.getChangedFiles(installationId, owner, repository, pullRequestNumber);

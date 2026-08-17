@@ -7,6 +7,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -24,6 +26,10 @@ public class CodeReviewMetrics {
     private final Timer executionTimer;
     private final Timer aiExecutionTimer;
     private final AtomicInteger inProgressGauge;
+
+    private final Map<String, Counter> retryCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> circuitBreakerOpenCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> externalFailureCounters = new ConcurrentHashMap<>();
 
     public CodeReviewMetrics(@Autowired(required = false) MeterRegistry meterRegistry) {
         this.meterRegistry = (meterRegistry != null) ? meterRegistry : new SimpleMeterRegistry();
@@ -98,6 +104,30 @@ public class CodeReviewMetrics {
         githubFailuresCounter.increment();
     }
 
+    public void recordRetry(String dependency) {
+        String dep = (dependency != null && !dependency.isBlank()) ? dependency.toLowerCase() : "unknown";
+        retryCounters.computeIfAbsent(dep, k -> Counter.builder("code_review.retry.total")
+                .tag("dependency", k)
+                .description("Total number of retry attempts for external operations")
+                .register(meterRegistry)).increment();
+    }
+
+    public void recordCircuitBreakerOpen(String dependency) {
+        String dep = (dependency != null && !dependency.isBlank()) ? dependency.toLowerCase() : "unknown";
+        circuitBreakerOpenCounters.computeIfAbsent(dep, k -> Counter.builder("code_review.circuit_breaker.open.total")
+                .tag("dependency", k)
+                .description("Total number of requests rejected due to an open circuit breaker")
+                .register(meterRegistry)).increment();
+    }
+
+    public void recordExternalFailure(String dependency) {
+        String dep = (dependency != null && !dependency.isBlank()) ? dependency.toLowerCase() : "unknown";
+        externalFailureCounters.computeIfAbsent(dep, k -> Counter.builder("code_review.external_failure.total")
+                .tag("dependency", k)
+                .description("Total number of external dependency failures after retries")
+                .register(meterRegistry)).increment();
+    }
+
     public void recordFindings(int count) {
         if (count > 0) {
             findingsCounter.increment(count);
@@ -152,6 +182,18 @@ public class CodeReviewMetrics {
 
     public Counter getGithubFailuresCounter() {
         return githubFailuresCounter;
+    }
+
+    public Counter getRetryCounter(String dependency) {
+        return retryCounters.get(dependency.toLowerCase());
+    }
+
+    public Counter getCircuitBreakerOpenCounter(String dependency) {
+        return circuitBreakerOpenCounters.get(dependency.toLowerCase());
+    }
+
+    public Counter getExternalFailureCounter(String dependency) {
+        return externalFailureCounters.get(dependency.toLowerCase());
     }
 
     public Timer getExecutionTimer() {

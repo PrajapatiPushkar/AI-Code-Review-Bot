@@ -263,13 +263,6 @@ When a code review fails or completes with unexpected results, troubleshoot usin
    docker compose logs backend | grep "reviewId=42"
    ```
    This trace exposes the async review lifecycle:
-   - `Starting async code review execution: reviewId=42, repository=octocat/hello-world, pullRequestNumber=10`
-   - `Fetching GitHub PR review context...`
-   - `Executing Gemini AI code review request for model=gemini-2.5-flash...`
-   - `Persisted N findings for reviewId=42`
-   - `Posted N review comments to GitHub PR #10...`
-   - `Marked reviewId=42 as COMPLETED (or FAILED: <error message>)`
-
 ---
 
 ## 7. Running Test Suite

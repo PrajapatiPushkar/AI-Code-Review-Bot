@@ -27,23 +27,26 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
     private final GeminiResponseParser responseParser;
 
     private final CodeReviewMetrics codeReviewMetrics;
+    private final com.pushkar.codereview.config.resilience.ResilienceExecutor resilienceExecutor;
 
     public GeminiAiReviewEngine(RestClient.Builder restClientBuilder,
                                 GeminiProperties geminiProperties,
                                 ReviewPromptBuilder promptBuilder,
                                 GeminiResponseParser responseParser) {
-        this(restClientBuilder, geminiProperties, promptBuilder, responseParser, null);
+        this(restClientBuilder, geminiProperties, promptBuilder, responseParser, null, null);
     }
 
     public GeminiAiReviewEngine(RestClient.Builder restClientBuilder,
                                 GeminiProperties geminiProperties,
                                 ReviewPromptBuilder promptBuilder,
                                 GeminiResponseParser responseParser,
-                                @org.springframework.beans.factory.annotation.Autowired(required = false) CodeReviewMetrics codeReviewMetrics) {
+                                @org.springframework.beans.factory.annotation.Autowired(required = false) CodeReviewMetrics codeReviewMetrics,
+                                @org.springframework.beans.factory.annotation.Autowired(required = false) com.pushkar.codereview.config.resilience.ResilienceExecutor resilienceExecutor) {
         this.geminiProperties = geminiProperties;
         this.promptBuilder = promptBuilder;
         this.responseParser = responseParser;
         this.codeReviewMetrics = codeReviewMetrics;
+        this.resilienceExecutor = resilienceExecutor;
         this.restClient = restClientBuilder
                 .baseUrl(geminiProperties.getApiBaseUrl())
                 .build();
@@ -53,19 +56,21 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
                                 GeminiProperties geminiProperties,
                                 ReviewPromptBuilder promptBuilder,
                                 GeminiResponseParser responseParser) {
-        this(restClient, geminiProperties, promptBuilder, responseParser, null);
+        this(restClient, geminiProperties, promptBuilder, responseParser, null, null);
     }
 
     public GeminiAiReviewEngine(RestClient restClient,
                                 GeminiProperties geminiProperties,
                                 ReviewPromptBuilder promptBuilder,
                                 GeminiResponseParser responseParser,
-                                CodeReviewMetrics codeReviewMetrics) {
+                                CodeReviewMetrics codeReviewMetrics,
+                                com.pushkar.codereview.config.resilience.ResilienceExecutor resilienceExecutor) {
         this.restClient = restClient;
         this.geminiProperties = geminiProperties;
         this.promptBuilder = promptBuilder;
         this.responseParser = responseParser;
         this.codeReviewMetrics = codeReviewMetrics;
+        this.resilienceExecutor = resilienceExecutor;
     }
 
     @Override
@@ -89,6 +94,14 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
 
         long startTime = System.currentTimeMillis();
 
+        if (resilienceExecutor != null) {
+            return resilienceExecutor.executeSupplier("gemini", () -> executeGeminiRequest(uriPath, apiKey, requestPayload, startTime));
+        } else {
+            return executeGeminiRequest(uriPath, apiKey, requestPayload, startTime);
+        }
+    }
+
+    private ReviewResult executeGeminiRequest(String uriPath, String apiKey, GeminiGenerateContentRequest requestPayload, long startTime) {
         try {
             GeminiGenerateContentResponse response = restClient.post()
                     .uri(uriPath)
