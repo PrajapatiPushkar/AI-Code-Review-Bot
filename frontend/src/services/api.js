@@ -21,11 +21,12 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor: Redirect on 401 Unauthorized
+// Response Interceptor: Redirect on 401 Unauthorized for protected resources
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
+    const isLoginEndpoint = error.config && error.config.url && error.config.url.includes('/auth/login');
+    if (error.response && error.response.status === 401 && !isLoginEndpoint) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       if (window.location.pathname !== '/login') {
