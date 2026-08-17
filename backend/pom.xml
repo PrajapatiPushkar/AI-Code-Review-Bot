@@ -34,6 +34,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Micrometer Prometheus Registry: Exposes Prometheus-compatible metric endpoints -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Spring Validation: Declarative Java Bean & DTO payload validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

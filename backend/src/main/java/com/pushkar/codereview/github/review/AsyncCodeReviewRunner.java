@@ -63,6 +63,9 @@ public class AsyncCodeReviewRunner {
         }
 
         long startTime = System.currentTimeMillis();
+        if (codeReviewMetrics != null) {
+            codeReviewMetrics.incrementInProgress();
+        }
         log.info("Starting async code review execution: reviewId={}, repository={}/{}, pullRequestNumber={}",
                 reviewId, owner, repository, pullRequestNumber);
 
@@ -115,6 +118,9 @@ public class AsyncCodeReviewRunner {
                 persistenceService.markFailed(reviewId, ex.getMessage());
             }
         } finally {
+            if (codeReviewMetrics != null) {
+                codeReviewMetrics.decrementInProgress();
+            }
             MDC.remove("correlationId");
             MDC.remove("reviewId");
         }

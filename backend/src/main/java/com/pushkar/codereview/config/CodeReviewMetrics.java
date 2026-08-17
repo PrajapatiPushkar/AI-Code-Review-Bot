@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 public class CodeReviewMetrics {
@@ -19,7 +20,10 @@ public class CodeReviewMetrics {
     private final Counter failedCounter;
     private final Counter findingsCounter;
     private final Counter commentsCounter;
+    private final Counter githubFailuresCounter;
     private final Timer executionTimer;
+    private final Timer aiExecutionTimer;
+    private final AtomicInteger inProgressGauge;
 
     public CodeReviewMetrics(@Autowired(required = false) MeterRegistry meterRegistry) {
         this.meterRegistry = (meterRegistry != null) ? meterRegistry : new SimpleMeterRegistry();
@@ -50,9 +54,20 @@ public class CodeReviewMetrics {
                 .description("Total number of review comments posted to GitHub")
                 .register(this.meterRegistry);
 
+        this.githubFailuresCounter = Counter.builder("code_review.github.failures")
+                .description("Total number of GitHub API or comment posting failures")
+                .register(this.meterRegistry);
+
         this.executionTimer = Timer.builder("code_review.execution.time")
                 .description("Duration of asynchronous code review executions")
                 .register(this.meterRegistry);
+
+        this.aiExecutionTimer = Timer.builder("code_review.ai.execution.time")
+                .description("Duration of AI review model inference execution")
+                .register(this.meterRegistry);
+
+        this.inProgressGauge = this.meterRegistry.gauge("code_review.in_progress",
+                new AtomicInteger(0));
     }
 
     public void recordSubmission(boolean isDuplicate) {
@@ -75,6 +90,14 @@ public class CodeReviewMetrics {
         executionTimer.record(durationMillis, TimeUnit.MILLISECONDS);
     }
 
+    public void recordAiExecutionTime(long durationMillis) {
+        aiExecutionTimer.record(durationMillis, TimeUnit.MILLISECONDS);
+    }
+
+    public void recordGithubFailure() {
+        githubFailuresCounter.increment();
+    }
+
     public void recordFindings(int count) {
         if (count > 0) {
             findingsCounter.increment(count);
@@ -84,6 +107,18 @@ public class CodeReviewMetrics {
     public void recordCommentsPosted(int count) {
         if (count > 0) {
             commentsCounter.increment(count);
+        }
+    }
+
+    public void incrementInProgress() {
+        if (inProgressGauge != null) {
+            inProgressGauge.incrementAndGet();
+        }
+    }
+
+    public void decrementInProgress() {
+        if (inProgressGauge != null && inProgressGauge.get() > 0) {
+            inProgressGauge.decrementAndGet();
         }
     }
 
@@ -115,7 +150,19 @@ public class CodeReviewMetrics {
         return commentsCounter;
     }
 
+    public Counter getGithubFailuresCounter() {
+        return githubFailuresCounter;
+    }
+
     public Timer getExecutionTimer() {
         return executionTimer;
+    }
+
+    public Timer getAiExecutionTimer() {
+        return aiExecutionTimer;
+    }
+
+    public int getInProgressCount() {
+        return inProgressGauge != null ? inProgressGauge.get() : 0;
     }
 }

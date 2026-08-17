@@ -185,15 +185,24 @@ Lesson 42 introduces production observability foundations for the backend servic
 
 | Endpoint | Context Path Route | Auth Required | Description |
 |---|---|---|---|
-| `/actuator/health` | `/api/v1/actuator/health` | Public | Overall service health (`UP`/`DOWN`). In production, sensitive component details are suppressed (`show-details: never`). |
-| `/actuator/health/liveness` | `/api/v1/actuator/health/liveness` | Public | Kubernetes / Docker container liveness probe (`UP`). |
-| `/actuator/health/readiness` | `/api/v1/actuator/health/readiness` | Public | Container readiness probe verifying backend is ready to process requests (`UP`). |
+| `/actuator/health` | `/api/v1/actuator/health` | Public | Overall service health (`UP`/`DOWN`), including database connectivity, `GeminiAiHealthIndicator`, and `GithubApiHealthIndicator`. In production, sensitive component details are suppressed (`show-details: never`). |
+| `/actuator/health/liveness` | `/api/v1/actuator/health/liveness` | Public | Container liveness probe (`UP`). |
+| `/actuator/health/readiness` | `/api/v1/actuator/health/readiness` | Public | Container readiness probe verifying backend and database connectivity (`UP`). |
 | `/actuator/info` | `/api/v1/actuator/info` | Public | Application metadata (version, build name). Sensitive environment properties are disabled. |
 | `/actuator/metrics` | `/api/v1/actuator/metrics` | Public | Application-level Micrometer metrics summary and metric keys. |
+| `/actuator/prometheus` | `/api/v1/actuator/prometheus` | Public | Prometheus-formatted metrics scrape endpoint (`micrometer-registry-prometheus`). |
 | `/health` | `/api/v1/health` | Public | Legacy simple JSON status endpoint. |
 
 > [!SECURITY]
-> Sensitive Actuator endpoints (`/actuator/env`, `/actuator/configprops`, `/actuator/beans`, `/actuator/heapdump`, `/actuator/threaddump`) are unexposed to ensure configuration properties and secrets are never leaked.
+> Sensitive Actuator endpoints (`/actuator/env`, `/actuator/configprops`, `/actuator/beans`, `/actuator/heapdump`, `/actuator/threaddump`, `/actuator/mappings`, `/actuator/loggers`) are unexposed to ensure configuration properties and secrets are never leaked.
+
+---
+
+### Custom Health Indicators
+
+The application includes production health indicators:
+- **`GeminiAiHealthIndicator`**: Verifies Gemini AI engine configuration without exposing the API key in the response payload.
+- **`GithubApiHealthIndicator`**: Verifies GitHub App integration credentials without exposing RSA private keys or tokens.
 
 ---
 
@@ -207,20 +216,23 @@ Lesson 42 introduces production observability foundations for the backend servic
 
 ---
 
-### Micrometer Application Metrics
+### Micrometer Application & Prometheus Metrics
 
-Custom application metrics are recorded in `CodeReviewMetrics` and exposed via Spring Boot Actuator at `/actuator/metrics`:
+Custom application metrics are recorded in `CodeReviewMetrics` using low-cardinality tags (avoiding user IDs, JWTs, repository names, PR numbers, or commit SHAs) and exposed via Spring Boot Actuator:
 
 - `code_review.submissions.total` (Counter, tags: `type=new`, `type=duplicate`): Count of code review requests received.
 - `code_review.completed.total` (Counter): Count of successfully completed code reviews.
 - `code_review.failed.total` (Counter): Count of code review executions that encountered exceptions.
+- `code_review.in_progress` (Gauge): Number of active in-progress code reviews currently running.
 - `code_review.execution.time` (Timer): Duration (in milliseconds) of asynchronous review execution from start to finish.
+- `code_review.ai.execution.time` (Timer): Duration (in milliseconds) of Gemini AI model inference execution.
+- `code_review.github.failures` (Counter): Count of GitHub API request or comment posting failures.
 - `code_review.findings.total` (Counter): Total number of AI findings generated.
 - `code_review.comments.total` (Counter): Total number of inline review comments posted to GitHub PRs.
 
-To query a specific metric via curl:
+To scrape metrics in Prometheus format:
 ```bash
-curl http://localhost:8080/api/v1/actuator/metrics/code_review.execution.time
+curl http://localhost:8080/api/v1/actuator/prometheus
 ```
 
 ---

@@ -1,5 +1,6 @@
 package com.pushkar.codereview.github.review;
 
+import com.pushkar.codereview.config.CodeReviewMetrics;
 import com.pushkar.codereview.github.client.GithubPullRequestReviewCommentClient;
 import com.pushkar.codereview.github.client.dto.GithubReviewCommentRequest;
 import com.pushkar.codereview.github.client.dto.GithubReviewCommentResponse;
@@ -19,9 +20,16 @@ public class GithubReviewCommentService {
     private static final Logger log = LoggerFactory.getLogger(GithubReviewCommentService.class);
 
     private final GithubPullRequestReviewCommentClient commentClient;
+    private final CodeReviewMetrics codeReviewMetrics;
 
     public GithubReviewCommentService(GithubPullRequestReviewCommentClient commentClient) {
+        this(commentClient, null);
+    }
+
+    public GithubReviewCommentService(GithubPullRequestReviewCommentClient commentClient,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false) CodeReviewMetrics codeReviewMetrics) {
         this.commentClient = commentClient;
+        this.codeReviewMetrics = codeReviewMetrics;
     }
 
     public List<GithubReviewCommentResponse> postReviewComments(Long installationId,
@@ -53,11 +61,20 @@ public class GithubReviewCommentService {
                         finding.getLine()
                 );
 
-                GithubReviewCommentResponse created = commentClient.createReviewComment(
-                        installationId, owner, repository, pullRequestNumber, request
-                );
-                if (created != null) {
-                    createdComments.add(created);
+                try {
+                    GithubReviewCommentResponse created = commentClient.createReviewComment(
+                            installationId, owner, repository, pullRequestNumber, request
+                    );
+                    if (created != null) {
+                        createdComments.add(created);
+                    }
+                } catch (Exception e) {
+                    if (codeReviewMetrics != null) {
+                        codeReviewMetrics.recordGithubFailure();
+                    }
+                    log.error("Failed to post GitHub review comment for repository={}/{}, prNumber={}, line={}: {}",
+                            owner, repository, pullRequestNumber, finding.getLine(), e.getMessage());
+                    throw e;
                 }
             }
         }

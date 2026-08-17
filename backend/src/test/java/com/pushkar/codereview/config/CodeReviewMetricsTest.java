@@ -56,4 +56,32 @@ class CodeReviewMetricsTest {
         assertThat(metrics.getExecutionTimer().count()).isEqualTo(1L);
         assertThat(metrics.getExecutionTimer().totalTime(TimeUnit.MILLISECONDS)).isEqualTo(1500.0);
     }
+
+    @Test
+    void testRecordAiExecutionTime_UpdatesTimer() {
+        metrics.recordAiExecutionTime(800L);
+
+        assertThat(metrics.getAiExecutionTimer().count()).isEqualTo(1L);
+        assertThat(metrics.getAiExecutionTimer().totalTime(TimeUnit.MILLISECONDS)).isEqualTo(800.0);
+    }
+
+    @Test
+    void testRecordGithubFailure_IncrementsCounter() {
+        metrics.recordGithubFailure();
+        metrics.recordGithubFailure();
+
+        assertThat(metrics.getGithubFailuresCounter().count()).isEqualTo(2.0);
+    }
+
+    @Test
+    void testInProgressGauge_IncrementsAndDecrements() {
+        assertThat(metrics.getInProgressCount()).isEqualTo(0);
+
+        metrics.incrementInProgress();
+        metrics.incrementInProgress();
+        assertThat(metrics.getInProgressCount()).isEqualTo(2);
+
+        metrics.decrementInProgress();
+        assertThat(metrics.getInProgressCount()).isEqualTo(1);
+    }
 }
