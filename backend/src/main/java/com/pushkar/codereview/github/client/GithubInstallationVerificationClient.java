@@ -15,6 +15,7 @@ public class GithubInstallationVerificationClient {
     private final RestClient restClient;
     private final GithubJwtService githubJwtService;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubInstallationVerificationClient(GithubProperties githubProperties,
                                                  GithubJwtService githubJwtService,
                                                  RestClient.Builder restClientBuilder) {

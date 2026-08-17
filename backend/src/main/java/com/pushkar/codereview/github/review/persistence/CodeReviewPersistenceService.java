@@ -6,6 +6,7 @@ import com.pushkar.codereview.github.review.dto.ReviewFindingSeverity;
 import com.pushkar.codereview.user.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +25,8 @@ public class CodeReviewPersistenceService {
         this(repository, null);
     }
 
-    public CodeReviewPersistenceService(CodeReviewRepository repository, CodeReviewFindingRepository findingRepository) {
+    @Autowired
+    public CodeReviewPersistenceService(CodeReviewRepository repository, @Autowired(required = false) CodeReviewFindingRepository findingRepository) {
         this.repository = repository;
         this.findingRepository = findingRepository;
     }

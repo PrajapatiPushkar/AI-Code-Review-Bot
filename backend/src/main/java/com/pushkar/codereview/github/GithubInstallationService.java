@@ -60,14 +60,15 @@ public class GithubInstallationService {
         this(githubInstallationRepository, userRepository, githubInstallationMapper, currentUserService, installationTokenClient, verificationClient, null, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubInstallationService(GithubInstallationRepository githubInstallationRepository,
                                      UserRepository userRepository,
                                      GithubInstallationMapper githubInstallationMapper,
                                      CurrentUserService currentUserService,
-                                     GithubInstallationTokenClient installationTokenClient,
-                                     GithubInstallationVerificationClient verificationClient,
-                                     GithubRepositoryClient repositoryClient,
-                                     GithubPullRequestClient pullRequestClient) {
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false) GithubInstallationTokenClient installationTokenClient,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false) GithubInstallationVerificationClient verificationClient,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false) GithubRepositoryClient repositoryClient,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false) GithubPullRequestClient pullRequestClient) {
         this.githubInstallationRepository = githubInstallationRepository;
         this.userRepository = userRepository;
         this.githubInstallationMapper = githubInstallationMapper;

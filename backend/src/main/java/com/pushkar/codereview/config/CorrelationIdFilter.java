@@ -35,6 +35,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 
         MDC.put(MDC_CORRELATION_ID_KEY, correlationId);
         response.setHeader(CORRELATION_ID_HEADER, correlationId);
+        response.setHeader("X-Correlation-Id", correlationId);
 
         long startTime = System.currentTimeMillis();
         log.info("Incoming HTTP {} {}", request.getMethod(), request.getRequestURI());
@@ -52,7 +53,13 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     private String resolveCorrelationId(HttpServletRequest request) {
         String headerValue = request.getHeader(CORRELATION_ID_HEADER);
         if (headerValue == null || headerValue.isBlank()) {
+            headerValue = request.getHeader("X-Correlation-Id");
+        }
+        if (headerValue == null || headerValue.isBlank()) {
             headerValue = request.getHeader(REQUEST_ID_HEADER);
+        }
+        if (headerValue == null || headerValue.isBlank()) {
+            headerValue = request.getHeader("X-Request-Id");
         }
 
         if (headerValue != null && !headerValue.isBlank()) {

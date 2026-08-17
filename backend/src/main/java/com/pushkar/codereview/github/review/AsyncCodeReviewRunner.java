@@ -34,6 +34,7 @@ public class AsyncCodeReviewRunner {
         this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null);
     }
 
+    @Autowired
     public AsyncCodeReviewRunner(GithubPullRequestReviewService pullRequestReviewService,
                                   AiReviewService aiReviewService,
                                   GithubReviewCommentService reviewCommentService,

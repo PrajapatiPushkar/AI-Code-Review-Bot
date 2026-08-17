@@ -15,6 +15,7 @@ public class GithubInstallationTokenClient {
     private final RestClient restClient;
     private final GithubJwtService githubJwtService;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubInstallationTokenClient(GithubProperties githubProperties,
                                           GithubJwtService githubJwtService,
                                           RestClient.Builder restClientBuilder) {

@@ -16,6 +16,7 @@ public class GithubRepositoryClient {
     private final RestClient restClient;
     private final GithubInstallationTokenService tokenService;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubRepositoryClient(GithubProperties githubProperties,
                                   GithubInstallationTokenService tokenService,
                                   RestClient.Builder restClientBuilder) {

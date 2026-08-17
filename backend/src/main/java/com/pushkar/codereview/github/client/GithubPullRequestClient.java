@@ -17,6 +17,7 @@ public class GithubPullRequestClient {
     private final RestClient restClient;
     private final GithubInstallationTokenService tokenService;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubPullRequestClient(GithubProperties githubProperties,
                                    GithubInstallationTokenService tokenService,
                                    RestClient.Builder restClientBuilder) {

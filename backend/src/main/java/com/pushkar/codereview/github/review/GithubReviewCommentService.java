@@ -26,6 +26,7 @@ public class GithubReviewCommentService {
         this(commentClient, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubReviewCommentService(GithubPullRequestReviewCommentClient commentClient,
                                      @org.springframework.beans.factory.annotation.Autowired(required = false) CodeReviewMetrics codeReviewMetrics) {
         this.commentClient = commentClient;

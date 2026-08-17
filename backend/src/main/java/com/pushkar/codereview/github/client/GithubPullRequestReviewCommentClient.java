@@ -17,6 +17,7 @@ public class GithubPullRequestReviewCommentClient {
     private final RestClient restClient;
     private final GithubInstallationTokenService tokenService;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GithubPullRequestReviewCommentClient(GithubProperties githubProperties,
                                                GithubInstallationTokenService tokenService,
                                                RestClient.Builder restClientBuilder) {

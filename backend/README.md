@@ -265,10 +265,120 @@ When a code review fails or completes with unexpected results, troubleshoot usin
    This trace exposes the async review lifecycle:
 ---
 
-## 7. Running Test Suite
+## 8. Lesson 44 — Production Observability & Monitoring
 
-Run full backend unit and integration test suite:
+Lesson 44 expands backend production observability with comprehensive business metrics, external dependency latency/failure tracking, safe correlation ID propagation across HTTP and async execution threads, Actuator security, and container health verification.
 
-```bash
-mvn test "-Dtest=*Test,!AiCodeReviewBotApplicationTests"
+### Observability Architecture
+
 ```
+HTTP Request (Header: X-Correlation-Id)
+                 │
+                 ▼
+     ┌──────────────────────┐
+     │ CorrelationIdFilter  │ ◄── Extracted/Generated UUID in MDC ("correlationId")
+     └──────────┬───────────┘     Header returned in Response
+                │
+                ▼
+     ┌──────────────────────┐
+     │  Security & Context  │ ◄── Credentials masked from MDC & logs
+     └──────────┬───────────┘
+                │
+                ▼
+     ┌──────────────────────┐
+     │ CodeReviewController │ ◄── Records: code_review.submission.total
+     └──────────┬───────────┘
+                │
+                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                   AsyncCodeReviewRunner (@Async)                 │
+│  - MDC Context: correlationId, reviewId                          │
+│  - Records: code_review.in_progress (Gauge)                      │
+│  - Records: code_review.duration (Timer)                         │
+│  - Records: code_review.completed.total / code_review.failed.total│
+└───────────────┬──────────────────────────────────┬───────────────┘
+                │                                  │
+                ▼                                  ▼
+   ┌──────────────────────────┐      ┌──────────────────────────┐
+   │        GitHub API        │      │        Gemini AI         │
+   │ - github.api.request     │      │ - gemini.api.request     │
+   │ - github.api.duration    │      │ - gemini.api.duration    │
+   │ - github.api.failure     │      │ - gemini.api.failure     │
+   └──────────────────────────┘      └──────────────────────────┘
+```
+
+---
+
+### Actuator Endpoints & Access Control
+
+| Endpoint Route | Public / Permitted | Description |
+|---|---|---|
+| `/api/v1/actuator/health` | Public | Application status (`UP`). Checks database connection and configuration health without executing expensive network calls. |
+| `/api/v1/actuator/health/liveness` | Public | Container liveness status (`UP`). Indicates the JVM process is alive. |
+| `/api/v1/actuator/health/readiness` | Public | Container readiness status (`UP`). Indicates the backend and PostgreSQL DB are ready to serve traffic. |
+| `/api/v1/actuator/info` | Public | Safe application metadata (name, version, profile). Secrets are never exposed. |
+| `/api/v1/actuator/metrics` | Public | Micrometer application metrics summary. |
+| `/api/v1/actuator/prometheus` | Public | Prometheus scrape target (`micrometer-registry-prometheus`). |
+
+> [!SECURITY]
+> Sensitive Actuator endpoints (`/actuator/env`, `/actuator/beans`, `/actuator/configprops`, `/actuator/mappings`) remain unexposed and return HTTP 404 Not Found.
+
+---
+
+### Code-Review Business Metrics
+
+All business metrics use low-cardinality tags (`type=new`, `type=duplicate`, `status=completed`, `status=failed`) to prevent unbounded memory growth:
+
+- `code_review.submission.total` (Counter): Total code review submissions received.
+- `code_review.completed.total` (Counter): Successfully completed code reviews.
+- `code_review.failed.total` (Counter): Failed code review executions.
+- `code_review.duration` (Timer): Duration (in milliseconds) of asynchronous review execution.
+- `code_review.findings.total` (Counter): Total AI review findings generated.
+- `code_review.comments.posted.total` (Counter): Total inline review comments posted to GitHub PRs.
+
+---
+
+### External Dependency Latency & Failure Metrics
+
+Low-cardinality tags (`dependency=github`, `dependency=gemini`, `status=success`, `status=failed`):
+
+- `github.api.request` (Counter): Total GitHub API request invocations.
+- `github.api.duration` (Timer): GitHub API call response duration in milliseconds.
+- `github.api.failure` (Counter): Total GitHub API failures.
+- `gemini.api.request` (Counter): Total Gemini AI model inference calls.
+- `gemini.api.duration` (Timer): Gemini AI inference execution duration in milliseconds.
+- `gemini.api.failure` (Counter): Total Gemini AI inference failures.
+
+---
+
+### Request & Async Correlation ID Tracking
+
+1. **HTTP Filter**: `CorrelationIdFilter` reads `X-Correlation-Id` or `X-Correlation-ID` header. If missing, it generates a UUID, attaches it to the response header, and populates `MDC.put("correlationId", ...)`.
+2. **Async Propagation**: `AsyncCodeReviewRunner` receives `correlationId` from the caller and populates the worker thread MDC (`correlationId`, `reviewId`).
+3. **MDC Cleanup**: MDC is cleared in a `finally` block in both HTTP filter and async thread worker.
+
+---
+
+### Docker Health Verification
+
+- `docker-compose.yml` configures container health checks using `wget http://localhost:8080/api/v1/actuator/health`.
+- Service dependencies ensure `postgres` achieves health status (`pg_isready`) before backend startup.
+- Temporary external GitHub or Gemini outages do NOT cause Docker container readiness/liveness health check failures.
+
+---
+
+### Troubleshooting Examples
+
+1. **Tracing a Review Execution in Container Logs**:
+   ```bash
+   docker compose logs backend | grep "correlationId=7d7c8e3a-1234-4567-89ab-cdef01234567"
+   ```
+2. **Scrape Metrics in Prometheus Format**:
+   ```bash
+   curl http://localhost:8080/api/v1/actuator/prometheus
+   ```
+3. **Check Container Readiness Probe**:
+   ```bash
+   curl http://localhost:8080/api/v1/actuator/health/readiness
+   ```
+

@@ -16,25 +16,41 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class CodeReviewMetrics {
 
     private final MeterRegistry meterRegistry;
+
+    // Business Counters & Timers
     private final Counter submissionsCounter;
+    private final Counter submissionSingularCounter;
     private final Counter duplicateSubmissionsCounter;
     private final Counter completedCounter;
     private final Counter failedCounter;
     private final Counter findingsCounter;
     private final Counter commentsCounter;
+    private final Counter commentsPostedCounter;
     private final Counter githubFailuresCounter;
     private final Timer executionTimer;
+    private final Timer durationTimer;
     private final Timer aiExecutionTimer;
     private final AtomicInteger inProgressGauge;
 
+    // Resilience & External Dependency Metrics Maps
     private final Map<String, Counter> retryCounters = new ConcurrentHashMap<>();
     private final Map<String, Counter> circuitBreakerOpenCounters = new ConcurrentHashMap<>();
     private final Map<String, Counter> externalFailureCounters = new ConcurrentHashMap<>();
+
+    private final Map<String, Counter> apiRequestSuccessCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> apiRequestFailedCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> apiFailureCounters = new ConcurrentHashMap<>();
+    private final Map<String, Timer> apiDurationTimers = new ConcurrentHashMap<>();
 
     public CodeReviewMetrics(@Autowired(required = false) MeterRegistry meterRegistry) {
         this.meterRegistry = (meterRegistry != null) ? meterRegistry : new SimpleMeterRegistry();
 
         this.submissionsCounter = Counter.builder("code_review.submissions.total")
+                .tag("type", "new")
+                .description("Total number of code review requests submitted")
+                .register(this.meterRegistry);
+
+        this.submissionSingularCounter = Counter.builder("code_review.submission.total")
                 .tag("type", "new")
                 .description("Total number of code review requests submitted")
                 .register(this.meterRegistry);
@@ -60,11 +76,19 @@ public class CodeReviewMetrics {
                 .description("Total number of review comments posted to GitHub")
                 .register(this.meterRegistry);
 
+        this.commentsPostedCounter = Counter.builder("code_review.comments.posted.total")
+                .description("Total number of review comments posted to GitHub")
+                .register(this.meterRegistry);
+
         this.githubFailuresCounter = Counter.builder("code_review.github.failures")
                 .description("Total number of GitHub API or comment posting failures")
                 .register(this.meterRegistry);
 
         this.executionTimer = Timer.builder("code_review.execution.time")
+                .description("Duration of asynchronous code review executions")
+                .register(this.meterRegistry);
+
+        this.durationTimer = Timer.builder("code_review.duration")
                 .description("Duration of asynchronous code review executions")
                 .register(this.meterRegistry);
 
@@ -81,6 +105,7 @@ public class CodeReviewMetrics {
             duplicateSubmissionsCounter.increment();
         } else {
             submissionsCounter.increment();
+            submissionSingularCounter.increment();
         }
     }
 
@@ -94,14 +119,17 @@ public class CodeReviewMetrics {
 
     public void recordExecutionTime(long durationMillis) {
         executionTimer.record(durationMillis, TimeUnit.MILLISECONDS);
+        durationTimer.record(durationMillis, TimeUnit.MILLISECONDS);
     }
 
     public void recordAiExecutionTime(long durationMillis) {
         aiExecutionTimer.record(durationMillis, TimeUnit.MILLISECONDS);
+        recordExternalApiRequest("gemini", true, durationMillis);
     }
 
     public void recordGithubFailure() {
         githubFailuresCounter.increment();
+        recordExternalApiFailure("github");
     }
 
     public void recordRetry(String dependency) {
@@ -128,6 +156,42 @@ public class CodeReviewMetrics {
                 .register(meterRegistry)).increment();
     }
 
+    public void recordExternalApiRequest(String dependency, boolean success, long durationMillis) {
+        String dep = (dependency != null && !dependency.isBlank()) ? dependency.toLowerCase() : "unknown";
+        String metricPrefix = dep.equals("github") ? "github.api" : (dep.equals("gemini") ? "gemini.api" : dep + ".api");
+
+        if (success) {
+            apiRequestSuccessCounters.computeIfAbsent(dep, k -> Counter.builder(metricPrefix + ".request")
+                    .tag("dependency", k)
+                    .tag("status", "success")
+                    .description("Total successful API requests to external dependency")
+                    .register(meterRegistry)).increment();
+        } else {
+            apiRequestFailedCounters.computeIfAbsent(dep, k -> Counter.builder(metricPrefix + ".request")
+                    .tag("dependency", k)
+                    .tag("status", "failed")
+                    .description("Total failed API requests to external dependency")
+                    .register(meterRegistry)).increment();
+
+            recordExternalApiFailure(dep);
+        }
+
+        apiDurationTimers.computeIfAbsent(dep, k -> Timer.builder(metricPrefix + ".duration")
+                .tag("dependency", k)
+                .description("Duration of API requests to external dependency")
+                .register(meterRegistry)).record(durationMillis, TimeUnit.MILLISECONDS);
+    }
+
+    public void recordExternalApiFailure(String dependency) {
+        String dep = (dependency != null && !dependency.isBlank()) ? dependency.toLowerCase() : "unknown";
+        String metricPrefix = dep.equals("github") ? "github.api" : (dep.equals("gemini") ? "gemini.api" : dep + ".api");
+
+        apiFailureCounters.computeIfAbsent(dep, k -> Counter.builder(metricPrefix + ".failure")
+                .tag("dependency", k)
+                .description("Total API request failures for external dependency")
+                .register(meterRegistry)).increment();
+    }
+
     public void recordFindings(int count) {
         if (count > 0) {
             findingsCounter.increment(count);
@@ -137,6 +201,7 @@ public class CodeReviewMetrics {
     public void recordCommentsPosted(int count) {
         if (count > 0) {
             commentsCounter.increment(count);
+            commentsPostedCounter.increment(count);
         }
     }
 
@@ -160,6 +225,10 @@ public class CodeReviewMetrics {
         return submissionsCounter;
     }
 
+    public Counter getSubmissionSingularCounter() {
+        return submissionSingularCounter;
+    }
+
     public Counter getDuplicateSubmissionsCounter() {
         return duplicateSubmissionsCounter;
     }
@@ -180,6 +249,10 @@ public class CodeReviewMetrics {
         return commentsCounter;
     }
 
+    public Counter getCommentsPostedCounter() {
+        return commentsPostedCounter;
+    }
+
     public Counter getGithubFailuresCounter() {
         return githubFailuresCounter;
     }
@@ -198,6 +271,10 @@ public class CodeReviewMetrics {
 
     public Timer getExecutionTimer() {
         return executionTimer;
+    }
+
+    public Timer getDurationTimer() {
+        return durationTimer;
     }
 
     public Timer getAiExecutionTimer() {

@@ -36,6 +36,7 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
         this(restClientBuilder, geminiProperties, promptBuilder, responseParser, null, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GeminiAiReviewEngine(RestClient.Builder restClientBuilder,
                                 GeminiProperties geminiProperties,
                                 ReviewPromptBuilder promptBuilder,

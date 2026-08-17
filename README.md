@@ -78,15 +78,35 @@
 - Docker (optional)
 
 ### Quick Start
+
 1. **Clone Repository**:
    ```bash
    git clone https://github.com/your-username/AI-Code-Review-Bot.git
    cd AI-Code-Review-Bot
    ```
+
 2. **Backend Setup**:
-   *(Instructions coming soon)*
+   ```bash
+   cd backend
+   mvn clean install
+   mvn spring-boot:run
+   ```
+
 3. **Frontend Setup**:
-   *(Instructions coming soon)*
+   ```bash
+   cd frontend
+   cp .env.example .env
+   npm install
+   npm run dev
+   ```
+   Access the frontend application at `http://localhost:5173`.
+
+### Environment Configuration
+
+The frontend communicates with the Spring Boot backend via `VITE_API_BASE_URL`:
+
+- Environment file: `frontend/.env`
+- Default Backend API URL: `http://localhost:8080/api/v1`
 
 ---
 

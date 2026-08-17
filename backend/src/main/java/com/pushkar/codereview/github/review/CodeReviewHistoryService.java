@@ -39,7 +39,10 @@ public class CodeReviewHistoryService {
         this(repository, currentUserService, null);
     }
 
-    public CodeReviewHistoryService(CodeReviewRepository repository, CurrentUserService currentUserService, CodeReviewFindingRepository findingRepository) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public CodeReviewHistoryService(CodeReviewRepository repository,
+                                   CurrentUserService currentUserService,
+                                   @org.springframework.beans.factory.annotation.Autowired(required = false) CodeReviewFindingRepository findingRepository) {
         this.repository = repository;
         this.currentUserService = currentUserService;
         this.findingRepository = findingRepository;

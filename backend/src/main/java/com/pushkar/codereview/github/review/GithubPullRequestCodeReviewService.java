@@ -72,6 +72,7 @@ public class GithubPullRequestCodeReviewService {
         this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, currentUserService, githubInstallationRepository, asyncCodeReviewRunner, null);
     }
 
+    @Autowired
     public GithubPullRequestCodeReviewService(GithubPullRequestReviewService pullRequestReviewService,
                                                AiReviewService aiReviewService,
                                                GithubReviewCommentService reviewCommentService,
