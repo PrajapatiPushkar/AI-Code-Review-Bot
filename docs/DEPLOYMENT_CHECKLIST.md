@@ -26,17 +26,26 @@ Ensure the following environment variables are exported on the host system or pr
 
 ---
 
-## 2. Pre-Deployment Readiness Audit
+## 2. Status Breakdown (Verified vs Remote)
 
-- [x] **Secrets & Key Isolation**: Verify zero `.env` files, `.pem` keys, or passwords are committed to Git repository.
-- [x] **Database Migration**: Confirm Flyway migrations (`V1__...sql`) are present in `backend/src/main/resources/db/migration/`.
-- [x] **Docker Image Security**: Verify backend Docker container runs under a non-root system user (`appuser`).
-- [x] **Port Security**: Verify PostgreSQL port `5432` is not exposed publicly on host in production configuration (`docker-compose.prod.yml`).
-- [x] **Health Check Probes**: Verify Actuator `/actuator/health` endpoint is configured with `/liveness` and `/readiness` probes.
+- **Local Docker Compose Stack**: `VERIFIED LOCALLY` (`docker compose config` warning-free, multi-container configuration validated).
+- **Frontend SPA Build**: `VERIFIED LOCALLY` (`npx vite build` 100% clean).
+- **Backend Test Suite**: `VERIFIED LOCALLY` (258 unit/integration tests passing).
+- **Remote Cloud Deployment**: `NOT AVAILABLE / BLOCKED` (No remote cloud server IP or SSH credentials supplied).
 
 ---
 
-## 3. Docker Production Deployment Workflow
+## 3. Pre-Deployment Readiness Audit
+
+- [x] **Secrets & Key Isolation**: Zero `.env` files, `.pem` keys, or passwords committed to Git repository.
+- [x] **Database Migration**: Flyway migrations (`V1__...sql`) present in `backend/src/main/resources/db/migration/`.
+- [x] **Docker Image Security**: Backend Docker container runs under a non-root system user (`appuser`).
+- [x] **Port Security**: PostgreSQL port `5432` is not exposed publicly on host in production configuration (`docker-compose.prod.yml`).
+- [x] **Health Check Probes**: Actuator `/actuator/health` endpoint configured with `/liveness` and `/readiness` probes.
+
+---
+
+## 4. Docker Production Deployment Workflow
 
 ### Step 1: Create Production `.env` File
 ```bash
@@ -75,8 +84,8 @@ curl http://localhost:8080/api/v1/actuator/health
 
 ---
 
-## 4. Production Security & Infrastructure Rationale
+## 5. Production Security & Infrastructure Rationale
 
-1. **HTTPS / Reverse Proxy**: In a cloud deployment (e.g. AWS EC2, GCP Compute Engine, DigitalOcean), place Nginx or AWS ALB in front of port `5173` (Frontend) and `8080` (Backend) to handle SSL/TLS termination.
+1. **HTTPS / Reverse Proxy**: In a cloud deployment (e.g. AWS EC2, GCP Compute Engine, DigitalOcean), place Nginx or AWS ALB in front of port `5173` (Frontend) and `8080` (Backend) to handle SSL/TLS termination and `X-Forwarded-*` headers.
 2. **PostgreSQL Volume Persistence**: Ensure Docker named volume `postgres-data` is mounted to persist database data across container restarts.
 3. **MDC Correlation Tracing**: Incoming requests automatically include or generate `X-Correlation-ID` header logs for end-to-end auditability.

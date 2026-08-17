@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     # Production Security: Do not expose PostgreSQL port 5432 publicly on host
