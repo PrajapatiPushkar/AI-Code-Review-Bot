@@ -49,9 +49,14 @@ const DashboardPage = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-subtitle">Overview of automated AI code reviews and pull request activity.</p>
+      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle">Overview of automated AI code reviews and pull request activity.</p>
+        </div>
+        <Link to="/reviews/new" className="btn btn-primary">
+          + Submit New Review
+        </Link>
       </div>
 
       {error && <ErrorMessage message={error} onRetry={fetchDashboardData} />}

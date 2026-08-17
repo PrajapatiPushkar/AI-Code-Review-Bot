@@ -34,6 +34,13 @@ const Navbar = () => {
           >
             Code Reviews
           </NavLink>
+          <NavLink
+            to="/reviews/new"
+            className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+          >
+            <span>+</span> New Review
+          </NavLink>
         </nav>
 
         <div className="navbar-user">

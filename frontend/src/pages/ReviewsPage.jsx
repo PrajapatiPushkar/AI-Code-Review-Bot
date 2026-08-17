@@ -70,9 +70,14 @@ const ReviewsPage = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h1 className="page-title">Code Reviews</h1>
-        <p className="page-subtitle">Browse and filter all pull request code reviews.</p>
+      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <h1 className="page-title">Code Reviews</h1>
+          <p className="page-subtitle">Browse and filter all pull request code reviews.</p>
+        </div>
+        <Link to="/reviews/new" className="btn btn-primary">
+          + Submit New Review
+        </Link>
       </div>
 
       <form className="filters-bar" onSubmit={handleSearchSubmit}>

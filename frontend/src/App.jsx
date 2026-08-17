@@ -6,6 +6,7 @@ import Navbar from './components/Navbar';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ReviewsPage from './pages/ReviewsPage';
+import SubmitReviewPage from './pages/SubmitReviewPage';
 import ReviewDetailsPage from './pages/ReviewDetailsPage';
 import ReviewFindingsPage from './pages/ReviewFindingsPage';
 
@@ -34,6 +35,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <ReviewsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reviews/new"
+                element={
+                  <ProtectedRoute>
+                    <SubmitReviewPage />
                   </ProtectedRoute>
                 }
               />

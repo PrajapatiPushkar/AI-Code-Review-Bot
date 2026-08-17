@@ -1,6 +1,11 @@
 import api from './api';
 
 export const reviewService = {
+  async submitPullRequestReview(payload) {
+    const response = await api.post('/code-reviews/pull-request', payload);
+    return response.data;
+  },
+
   async getCodeReviews(params = {}) {
     const response = await api.get('/code-reviews', { params });
     return response.data;
