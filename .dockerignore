@@ -1,0 +1,17 @@
+.git/
+.gitignore
+.idea/
+.vscode/
+node_modules/
+dist/
+target/
+logs/
+tmp/
+temp/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+README.md
