@@ -37,12 +37,14 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET:-defaultDevSecretKeyThatIsAtLeast32BytesLongForHMACSHA256Signatures12345}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
-      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-4642046}
       GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
-      GITHUB_PRIVATE_KEY_PATH: ${GITHUB_PRIVATE_KEY_PATH:-}
-      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITHUB_PRIVATE_KEY_PATH: ${GITHUB_PRIVATE_KEY_PATH:-/app/secrets/github-app-private-key.pem}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-defaultWebhookSecret123}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    volumes:
+      - ./secrets:/app/secrets:ro
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
     healthcheck:

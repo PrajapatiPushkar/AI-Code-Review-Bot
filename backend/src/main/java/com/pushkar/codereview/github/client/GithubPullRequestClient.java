@@ -26,6 +26,7 @@ public class GithubPullRequestClient {
                 .baseUrl(githubProperties.getApiBaseUrl())
                 .defaultHeader("Accept", "application/vnd.github+json")
                 .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
+                .defaultHeader("User-Agent", (githubProperties.getAppName() != null && !githubProperties.getAppName().isBlank()) ? githubProperties.getAppName() : "Pushkar-AI-Code-Review-Bot")
                 .build();
     }
 

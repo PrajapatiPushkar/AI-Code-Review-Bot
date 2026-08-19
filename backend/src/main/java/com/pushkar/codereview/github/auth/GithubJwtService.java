@@ -21,6 +21,8 @@ public class GithubJwtService {
 
     private final GithubProperties githubProperties;
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GithubJwtService.class);
+
     public GithubJwtService(GithubProperties githubProperties) {
         this.githubProperties = githubProperties;
     }
@@ -36,18 +38,28 @@ public class GithubJwtService {
             throw new IllegalStateException("GitHub App private key is not configured");
         }
 
+        log.info("Generating App JWT for App ID: '{}' (Key Length: {})", appId, rawPrivateKey.length());
+
         RSAPrivateKey privateKey = parsePrivateKey(rawPrivateKey);
         Algorithm algorithm = Algorithm.RSA256(null, privateKey);
 
         Instant now = Instant.now();
-        Instant issuedAt = now.minusSeconds(60); // 60s in the past for clock skew
-        Instant expiresAt = now.plusSeconds(600); // 10 minutes short-lived expiration
+        Instant issuedAt = now.minusSeconds(60); // 60s in the past to guarantee iat is never in the future on GitHub servers
+        Instant expiresAt = now.plusSeconds(600); // 10 minutes from now (660s total from issuedAt)
 
-        return JWT.create()
+        String jwt = JWT.create()
                 .withIssuer(appId)
                 .withIssuedAt(Date.from(issuedAt))
                 .withExpiresAt(Date.from(expiresAt))
                 .sign(algorithm);
+
+        System.out.println("Generated JWT: " + jwt);
+        String[] parts = jwt.split("\\.");
+        if (parts.length >= 2) {
+            System.out.println("JWT Header:  " + new String(Base64.getDecoder().decode(parts[0])));
+            System.out.println("JWT Payload: " + new String(Base64.getDecoder().decode(parts[1])));
+        }
+        return jwt;
     }
 
     public String loadPrivateKeyContent() {
@@ -76,7 +88,16 @@ public class GithubJwtService {
                     }
                 }
             } catch (Exception e) {
-                throw new IllegalStateException("Failed to load GitHub private key from file path: " + path);
+                // Fallback to default search paths below
+            }
+            return null;
+        }
+
+        // Fallback search path for container secret file if path was not specified
+        if (new java.io.File("/app/secrets/github-app-private-key.pem").exists()) {
+            try {
+                return unescapeKey(java.nio.file.Files.readString(java.nio.file.Path.of("/app/secrets/github-app-private-key.pem"), java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) {
             }
         }
         return null;
@@ -89,6 +110,7 @@ public class GithubJwtService {
 
     private RSAPrivateKey parsePrivateKey(String pem) {
         try {
+            boolean isPkcs1 = pem.contains("RSA PRIVATE KEY");
             String sanitized = pem.replace("-----BEGIN RSA PRIVATE KEY-----", "")
                                   .replace("-----END RSA PRIVATE KEY-----", "")
                                   .replace("-----BEGIN PRIVATE KEY-----", "")
@@ -98,16 +120,63 @@ public class GithubJwtService {
             byte[] decoded = Base64.getDecoder().decode(sanitized);
             KeyFactory keyFactory = KeyFactory.getInstance("RSA");
 
-            try {
-                PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(decoded);
+            if (isPkcs1) {
+                byte[] pkcs8Bytes = wrapPkcs1ToPkcs8(decoded);
+                PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(pkcs8Bytes);
                 return (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
-            } catch (InvalidKeySpecException e) {
-                RSAPrivateCrtKeySpec pkcs1KeySpec = parsePkcs1PrivateKey(decoded);
-                return (RSAPrivateKey) keyFactory.generatePrivate(pkcs1KeySpec);
+            } else {
+                try {
+                    PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(decoded);
+                    return (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
+                } catch (InvalidKeySpecException e) {
+                    byte[] pkcs8Bytes = wrapPkcs1ToPkcs8(decoded);
+                    PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(pkcs8Bytes);
+                    return (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
+                }
             }
         } catch (Exception e) {
-            throw new IllegalStateException("Invalid RSA private key configuration");
+            throw new IllegalStateException("Invalid RSA private key configuration", e);
         }
+    }
+
+    private byte[] wrapPkcs1ToPkcs8(byte[] pkcs1Bytes) {
+        int pkcs1Length = pkcs1Bytes.length;
+        byte[] algorithmIdentifier = new byte[] {
+            0x30, 0x0d,
+            0x06, 0x09, 0x2a, (byte)0x86, 0x48, (byte)0x86, (byte)0xf7, 0x0d, 0x01, 0x01, 0x01,
+            0x05, 0x00
+        };
+
+        byte[] octetStringHeader;
+        if (pkcs1Length < 128) {
+            octetStringHeader = new byte[] { 0x04, (byte) pkcs1Length };
+        } else if (pkcs1Length < 256) {
+            octetStringHeader = new byte[] { 0x04, (byte) 0x81, (byte) pkcs1Length };
+        } else {
+            octetStringHeader = new byte[] { 0x04, (byte) 0x82, (byte) (pkcs1Length >> 8), (byte) (pkcs1Length & 0xFF) };
+        }
+
+        int innerLength = 3 + algorithmIdentifier.length + octetStringHeader.length + pkcs1Length;
+        byte[] pkcs8Header;
+        if (innerLength < 128) {
+            pkcs8Header = new byte[] { 0x30, (byte) innerLength, 0x02, 0x01, 0x00 };
+        } else if (innerLength < 256) {
+            pkcs8Header = new byte[] { 0x30, (byte) 0x81, (byte) innerLength, 0x02, 0x01, 0x00 };
+        } else {
+            pkcs8Header = new byte[] { 0x30, (byte) 0x82, (byte) (innerLength >> 8), (byte) (innerLength & 0xFF), 0x02, 0x01, 0x00 };
+        }
+
+        byte[] pkcs8Bytes = new byte[pkcs8Header.length + algorithmIdentifier.length + octetStringHeader.length + pkcs1Bytes.length];
+        int pos = 0;
+        System.arraycopy(pkcs8Header, 0, pkcs8Bytes, pos, pkcs8Header.length);
+        pos += pkcs8Header.length;
+        System.arraycopy(algorithmIdentifier, 0, pkcs8Bytes, pos, algorithmIdentifier.length);
+        pos += algorithmIdentifier.length;
+        System.arraycopy(octetStringHeader, 0, pkcs8Bytes, pos, octetStringHeader.length);
+        pos += octetStringHeader.length;
+        System.arraycopy(pkcs1Bytes, 0, pkcs8Bytes, pos, pkcs1Bytes.length);
+
+        return pkcs8Bytes;
     }
 
     private RSAPrivateCrtKeySpec parsePkcs1PrivateKey(byte[] der) throws Exception {
@@ -152,6 +221,6 @@ public class GithubJwtService {
         int length = readDerLength(buffer);
         byte[] bytes = new byte[length];
         buffer.get(bytes);
-        return new BigInteger(bytes);
+        return new BigInteger(1, bytes);
     }
 }
