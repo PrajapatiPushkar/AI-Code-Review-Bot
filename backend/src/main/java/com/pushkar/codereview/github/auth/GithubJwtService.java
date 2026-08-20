@@ -53,12 +53,7 @@ public class GithubJwtService {
                 .withExpiresAt(Date.from(expiresAt))
                 .sign(algorithm);
 
-        System.out.println("Generated JWT: " + jwt);
-        String[] parts = jwt.split("\\.");
-        if (parts.length >= 2) {
-            System.out.println("JWT Header:  " + new String(Base64.getDecoder().decode(parts[0])));
-            System.out.println("JWT Payload: " + new String(Base64.getDecoder().decode(parts[1])));
-        }
+        log.debug("Successfully signed GitHub App JWT for App ID: '{}'", appId);
         return jwt;
     }
 

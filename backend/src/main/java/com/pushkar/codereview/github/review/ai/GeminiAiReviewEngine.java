@@ -82,7 +82,7 @@ public class GeminiAiReviewEngine implements AiReviewEngine {
 
         String apiKey = geminiProperties.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new GeminiAiReviewException("Gemini API key is missing or not configured");
+            throw new GeminiAiReviewException("Gemini API key is missing or not configured. Please set GEMINI_API_KEY in your .env file.");
         }
 
         int filesCount = (input.getFiles() != null) ? input.getFiles().size() : 0;
