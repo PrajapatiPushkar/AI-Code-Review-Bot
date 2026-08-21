@@ -15,6 +15,7 @@ import com.pushkar.codereview.github.review.persistence.CodeReviewRepository;
 import com.pushkar.codereview.security.CurrentUserService;
 import com.pushkar.codereview.user.User;
 import com.pushkar.codereview.user.UserRepository;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Disabled("Live End-to-End integration test requiring local PostgreSQL database and GitHub App Private Key")
 @SpringBootTest(properties = {
         "spring.main.allow-bean-definition-overriding=true",
         "spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/code_review_bot",
@@ -37,13 +39,13 @@ import static org.junit.jupiter.api.Assertions.*;
         "spring.datasource.password=postgres",
         "github.app-id=4642046",
         "github.app-name=Pushkar-AI-Code-Review-Bot",
-        "github.private-key-path=C:/Users/kppus/Downloads/pushkar-ai-code-review-bot.2026-08-18.private-key (1).pem",
+        "github.private-key-path=secrets/github-app-private-key.pem",
         "github.api-base-url=https://api.github.com"
 })
 @ActiveProfiles("dev")
 public class RealEndToEndCodeReviewVerificationTest {
 
-    private static final String DEFAULT_KEY_PATH = "C:/Users/kppus/Downloads/pushkar-ai-code-review-bot.2026-08-18.private-key (1).pem";
+    private static final String DEFAULT_KEY_PATH = "secrets/github-app-private-key.pem";
 
     static boolean hasKeyFile() {
         String path = System.getenv("GITHUB_PRIVATE_KEY_PATH");
