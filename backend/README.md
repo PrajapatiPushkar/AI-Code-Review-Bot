@@ -63,7 +63,7 @@ Required Production Environment Variables:
 | `GITHUB_PRIVATE_KEY_PATH` | Path to RSA Private Key file | **REQUIRED** (or `GITHUB_PRIVATE_KEY`) |
 | `GITHUB_WEBHOOK_SECRET` | GitHub Webhook secret | Recommended |
 | `GEMINI_API_KEY` | Google Gemini AI API key | **REQUIRED** |
-| `GEMINI_MODEL` | Gemini AI model identifier | Default: `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Gemini AI model identifier | Default: `gemini-3.6-flash` |
 
 ---
 

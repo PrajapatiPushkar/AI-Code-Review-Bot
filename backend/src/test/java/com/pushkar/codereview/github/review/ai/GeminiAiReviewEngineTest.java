@@ -27,7 +27,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class GeminiAiReviewEngineTest {
 
     private static final String API_KEY = "test-secret-api-key-99999";
-    private static final String MODEL = "gemini-2.5-flash";
+    private static final String MODEL = "gemini-3.6-flash";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com";
 
     private GeminiProperties geminiProperties;
@@ -87,6 +87,27 @@ class GeminiAiReviewEngineTest {
         assertThat(result.getFindings().get(0).getFilename()).isEqualTo("Main.java");
         assertThat(result.getFindings().get(0).getSeverity()).isEqualTo(ReviewFindingSeverity.HIGH);
         assertThat(result.getFindings().get(0).getCategory()).isEqualTo(ReviewFindingCategory.BUG);
+    }
+
+    @Test
+    void testEndpointConstructionAndMethod() {
+        ReviewInput input = new ReviewInput(
+                1L, "repo", "owner/repo", "https://github.com/owner/repo", "main",
+                10L, 1L, "Fix bug", "Fix null pointer", "open",
+                "https://github.com/owner/repo/pull/1", "octocat", "feature", "main",
+                null, null, Collections.emptyList()
+        );
+
+        String expectedUri = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+
+        mockServer.expect(requestTo(expectedUri))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("x-goog-api-key", API_KEY))
+                .andExpect(header("Content-Type", MediaType.APPLICATION_JSON_VALUE))
+                .andRespond(withSuccess("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"summary\\\":\\\"OK\\\",\\\"findings\\\":[]}\"}]}}]}", MediaType.APPLICATION_JSON));
+
+        engine.review(input);
+        mockServer.verify();
     }
 
     @Test

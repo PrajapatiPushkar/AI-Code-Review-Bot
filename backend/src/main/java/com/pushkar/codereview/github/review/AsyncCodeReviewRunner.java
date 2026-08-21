@@ -74,9 +74,17 @@ public class AsyncCodeReviewRunner {
             ReviewInput reviewInput = pullRequestReviewService.getReviewInput(installationId, owner, repository, pullRequestNumber);
             ReviewResult reviewResult = aiReviewService.review(reviewInput);
 
-            String commitId = (reviewInput != null && reviewInput.getHeadBranch() != null && !reviewInput.getHeadBranch().isBlank())
-                    ? reviewInput.getHeadBranch()
-                    : "HEAD";
+            String commitId = null;
+            if (persistenceService != null && reviewId != null) {
+                commitId = persistenceService.findById(reviewId)
+                        .map(com.pushkar.codereview.github.review.persistence.CodeReview::getCommitSha)
+                        .orElse(null);
+            }
+            if (commitId == null || commitId.isBlank()) {
+                commitId = (reviewInput != null && reviewInput.getHeadBranch() != null && !reviewInput.getHeadBranch().isBlank())
+                        ? reviewInput.getHeadBranch()
+                        : "HEAD";
+            }
 
             List<GithubReviewCommentResponse> postedComments = reviewCommentService.postReviewComments(
                     installationId, owner, repository, pullRequestNumber, commitId, reviewResult

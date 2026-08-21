@@ -22,7 +22,7 @@ class ProductionConfigValidatorTest {
         githubProperties.setAppId("123456");
         githubProperties.setPrivateKey("-----BEGIN RSA PRIVATE KEY-----\ndummyKey\n-----END RSA PRIVATE KEY-----");
 
-        geminiProperties = new GeminiProperties("realGeminiApiKey123", "gemini-2.5-flash", "https://generativelanguage.googleapis.com");
+        geminiProperties = new GeminiProperties("realGeminiApiKey123", "gemini-3.6-flash", "https://generativelanguage.googleapis.com");
 
         environment = new MockEnvironment();
         environment.setProperty("spring.datasource.password", "secretDbPassword");

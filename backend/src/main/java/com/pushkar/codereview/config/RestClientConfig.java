@@ -14,8 +14,8 @@ public class RestClientConfig {
     @ConditionalOnMissingBean
     public RestClient.Builder restClientBuilder(ResilienceProperties resilienceProperties) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        int connectTimeout = resilienceProperties.getTimeouts().getGithubConnectTimeoutMs();
-        int readTimeout = resilienceProperties.getTimeouts().getGithubReadTimeoutMs();
+        int connectTimeout = resilienceProperties.getTimeouts().getGeminiConnectTimeoutMs();
+        int readTimeout = Math.max(resilienceProperties.getTimeouts().getGeminiReadTimeoutMs(), 60000);
 
         requestFactory.setConnectTimeout(connectTimeout);
         requestFactory.setReadTimeout(readTimeout);

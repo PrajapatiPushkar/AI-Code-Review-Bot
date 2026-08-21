@@ -54,6 +54,14 @@ public class CodeReviewPersistenceService {
     }
 
     @Transactional(readOnly = true)
+    public java.util.Optional<CodeReview> findById(Long reviewId) {
+        if (repository == null || reviewId == null) {
+            return java.util.Optional.empty();
+        }
+        return repository.findById(reviewId);
+    }
+
+    @Transactional(readOnly = true)
     public java.util.Optional<CodeReview> findDuplicateReview(Long userId, Long installationId, String owner, String repositoryName, Integer pullRequestNumber, String commitSha) {
         if (repository == null) {
             return java.util.Optional.empty();

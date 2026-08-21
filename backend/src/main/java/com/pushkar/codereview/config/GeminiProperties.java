@@ -13,7 +13,7 @@ public class GeminiProperties {
     private String apiKey;
 
     @NotBlank(message = "Gemini model must not be blank")
-    private String model = "gemini-2.5-flash";
+    private String model = "gemini-3.6-flash";
 
     @NotBlank(message = "Gemini API base URL must not be blank")
     private String apiBaseUrl = "https://generativelanguage.googleapis.com";

@@ -34,7 +34,7 @@ class GeminiPropertiesTest {
     @Test
     void testGeminiPropertiesDefaults() {
         GeminiProperties defaults = new GeminiProperties();
-        assertThat(defaults.getModel()).isEqualTo("gemini-2.5-flash");
+        assertThat(defaults.getModel()).isEqualTo("gemini-3.6-flash");
         assertThat(defaults.getApiBaseUrl()).isEqualTo("https://generativelanguage.googleapis.com");
         assertThat(defaults.getApiKey()).isNull();
     }

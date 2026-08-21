@@ -71,7 +71,7 @@ github:
 
 gemini:
   api-key: ${GEMINI_API_KEY:}
-  model: ${GEMINI_MODEL:gemini-2.5-flash}
+  model: ${GEMINI_MODEL:gemini-3.6-flash}
   api-base-url: ${GEMINI_API_BASE_URL:https://generativelanguage.googleapis.com}
 
 jwt:
@@ -96,4 +96,4 @@ resilience:
     github-connect-timeout-ms: ${GITHUB_HTTP_CONNECT_TIMEOUT_MS:5000}
     github-read-timeout-ms: ${GITHUB_HTTP_READ_TIMEOUT_MS:15000}
     gemini-connect-timeout-ms: ${GEMINI_HTTP_CONNECT_TIMEOUT_MS:5000}
-    gemini-read-timeout-ms: ${GEMINI_HTTP_READ_TIMEOUT_MS:30000}
+    gemini-read-timeout-ms: ${GEMINI_HTTP_READ_TIMEOUT_MS:60000}

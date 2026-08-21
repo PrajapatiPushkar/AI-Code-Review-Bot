@@ -57,7 +57,7 @@ class ProductionDeploymentSmokeVerificationTest {
         GithubProperties githubProperties = new GithubProperties();
         githubProperties.setAppId("123456");
         githubProperties.setPrivateKey("-----BEGIN RSA PRIVATE KEY-----\ndummyKey\n-----END RSA PRIVATE KEY-----");
-        GeminiProperties geminiProperties = new GeminiProperties("realApiKey123", "gemini-2.5-flash", "https://generativelanguage.googleapis.com");
+        GeminiProperties geminiProperties = new GeminiProperties("realApiKey123", "gemini-3.6-flash", "https://generativelanguage.googleapis.com");
 
         MockEnvironment env = new MockEnvironment();
         env.setProperty("spring.datasource.password", "prodPassword");

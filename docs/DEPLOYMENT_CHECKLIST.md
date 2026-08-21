@@ -21,7 +21,7 @@ Ensure the following environment variables are exported on the host system or pr
 | `GITHUB_PRIVATE_KEY` | GitHub App PEM private key content | Yes | `-----BEGIN RSA PRIVATE KEY-----...` |
 | `GITHUB_WEBHOOK_SECRET` | Secret for GitHub Webhook signatures | Optional | `your_webhook_secret` |
 | `GEMINI_API_KEY` | Google Gemini AI API key | Yes | `AIzaSy...` |
-| `GEMINI_MODEL` | Gemini AI model identifier | Yes | `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Gemini AI model identifier | Yes | `gemini-3.6-flash` |
 | `VITE_API_BASE_URL` | Frontend API base URL | Yes | `http://localhost:8080/api/v1` |
 
 ---
