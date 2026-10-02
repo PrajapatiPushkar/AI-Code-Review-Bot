@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
+import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
@@ -17,7 +18,8 @@ import SettingsPlaceholderPage from './pages/SettingsPlaceholderPage';
 function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
         <BrowserRouter>
           <Routes>
             {/* Public Routes */}
@@ -46,7 +48,8 @@ function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
+        </AuthProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }
