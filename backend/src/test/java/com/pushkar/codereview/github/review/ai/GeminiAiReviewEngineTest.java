@@ -28,6 +28,7 @@ class GeminiAiReviewEngineTest {
 
     private static final String API_KEY = "test-secret-api-key-99999";
     private static final String MODEL = "gemini-3.6-flash";
+    private static final String FALLBACK_MODEL = "gemini-3.5-flash";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com";
 
     private GeminiProperties geminiProperties;
@@ -38,7 +39,7 @@ class GeminiAiReviewEngineTest {
 
     @BeforeEach
     void setUp() {
-        geminiProperties = new GeminiProperties(API_KEY, MODEL, BASE_URL);
+        geminiProperties = new GeminiProperties(API_KEY, MODEL, FALLBACK_MODEL, BASE_URL);
         promptBuilder = new ReviewPromptBuilder();
         responseParser = new GeminiResponseParser();
 
@@ -128,7 +129,7 @@ class GeminiAiReviewEngineTest {
     }
 
     @Test
-    void testReview_Http400BadRequest() {
+    void testReview_Http400BadRequest_DoesNotTriggerFallback() {
         ReviewInput input = new ReviewInput();
 
         mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
@@ -138,10 +139,12 @@ class GeminiAiReviewEngineTest {
                 .isInstanceOf(GeminiAiReviewException.class)
                 .hasMessageContaining("status code: 400")
                 .hasMessageNotContaining(API_KEY);
+
+        mockServer.verify();
     }
 
     @Test
-    void testReview_Http401Unauthorized() {
+    void testReview_Http401Unauthorized_DoesNotTriggerFallback() {
         ReviewInput input = new ReviewInput();
 
         mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
@@ -151,36 +154,169 @@ class GeminiAiReviewEngineTest {
                 .isInstanceOf(GeminiAiReviewException.class)
                 .hasMessageContaining("status code: 401")
                 .hasMessageNotContaining(API_KEY);
+
+        mockServer.verify();
     }
 
     @Test
-    void testReview_Http429TooManyRequests() {
+    void testReview_PrimaryReturns503_FallbackSucceeds() {
+        ReviewInput input = new ReviewInput();
+
+        // 1st request to primary model fails with 503
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        // Fallback request to fallback model succeeds
+        String fallbackResponseJson = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"summary\\\":\\\"Fallback Success\\\",\\\"findings\\\":[]}\"}]}}]}";
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + FALLBACK_MODEL + ":generateContent"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("x-goog-api-key", API_KEY))
+                .andRespond(withSuccess(fallbackResponseJson, MediaType.APPLICATION_JSON));
+
+        ReviewResult result = engine.review(input);
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.getSummary()).isEqualTo("Fallback Success");
+    }
+
+    @Test
+    void testReview_PrimaryModelRetriesBeforeFallback() {
+        com.pushkar.codereview.config.resilience.ResilienceProperties props = new com.pushkar.codereview.config.resilience.ResilienceProperties();
+        props.getRetry().setMaxAttempts(2);
+        props.getRetry().setInitialIntervalMs(10);
+        com.pushkar.codereview.config.resilience.ResilienceExecutor resExecutor = new com.pushkar.codereview.config.resilience.ResilienceExecutor(props, null);
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GeminiAiReviewEngine resilientEngine = new GeminiAiReviewEngine(builder, geminiProperties, promptBuilder, responseParser, null, resExecutor);
+
+        ReviewInput input = new ReviewInput();
+
+        // Primary attempt 1: 503
+        server.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        // Primary attempt 2 (retry): 503
+        server.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        // Fallback attempt 1: 200 OK
+        server.expect(requestTo(BASE_URL + "/v1beta/models/" + FALLBACK_MODEL + ":generateContent"))
+                .andRespond(withSuccess("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"summary\\\":\\\"Recovered with fallback\\\",\\\"findings\\\":[]}\"}]}}]}", MediaType.APPLICATION_JSON));
+
+        ReviewResult result = resilientEngine.review(input);
+        server.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.getSummary()).isEqualTo("Recovered with fallback");
+    }
+
+    @Test
+    void testReview_PrimaryAndFallbackBothFail() {
+        ReviewInput input = new ReviewInput();
+
+        // Primary fails with 503
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        // Fallback also fails with 503
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + FALLBACK_MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> engine.review(input))
+                .isInstanceOf(GeminiAiReviewException.class)
+                .hasMessageContaining("status code: 503")
+                .hasMessageNotContaining(API_KEY);
+
+        mockServer.verify();
+    }
+
+    @Test
+    void testReview_FallbackDoesNotCreateInfiniteLoop_WhenFallbackFails() {
+        ReviewInput input = new ReviewInput();
+
+        // Primary fails with 503
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        // Fallback fails with 500
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + FALLBACK_MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        assertThatThrownBy(() -> engine.review(input))
+                .isInstanceOf(GeminiAiReviewException.class)
+                .hasMessageContaining("status code: 500");
+
+        // mockServer.verify() ensures NO extra calls were made
+        mockServer.verify();
+    }
+
+    @Test
+    void testReview_FallbackDoesNotTrigger_WhenFallbackModelMatchesPrimary() {
+        geminiProperties.setFallbackModel(MODEL);
+        ReviewInput input = new ReviewInput();
+
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> engine.review(input))
+                .isInstanceOf(GeminiAiReviewException.class)
+                .hasMessageContaining("status code: 503");
+
+        mockServer.verify();
+    }
+
+    @Test
+    void testReview_FallbackDoesNotTrigger_WhenFallbackModelIsNull() {
+        geminiProperties.setFallbackModel(null);
+        ReviewInput input = new ReviewInput();
+
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> engine.review(input))
+                .isInstanceOf(GeminiAiReviewException.class)
+                .hasMessageContaining("status code: 503");
+
+        mockServer.verify();
+    }
+
+    @Test
+    void testReview_Http429TooManyRequests_FallbackSucceeds() {
         ReviewInput input = new ReviewInput();
 
         mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
                 .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
 
-        assertThatThrownBy(() -> engine.review(input))
-                .isInstanceOf(GeminiAiReviewException.class)
-                .hasMessageContaining("status code: 429")
-                .hasMessageNotContaining(API_KEY);
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + FALLBACK_MODEL + ":generateContent"))
+                .andRespond(withSuccess("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"summary\\\":\\\"Recovered from 429\\\",\\\"findings\\\":[]}\"}]}}]}", MediaType.APPLICATION_JSON));
+
+        ReviewResult result = engine.review(input);
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.getSummary()).isEqualTo("Recovered from 429");
     }
 
     @Test
-    void testReview_Http500InternalServerError() {
+    void testReview_Http500InternalServerError_FallbackSucceeds() {
         ReviewInput input = new ReviewInput();
 
         mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
-        assertThatThrownBy(() -> engine.review(input))
-                .isInstanceOf(GeminiAiReviewException.class)
-                .hasMessageContaining("status code: 500")
-                .hasMessageNotContaining(API_KEY);
+        mockServer.expect(requestTo(BASE_URL + "/v1beta/models/" + FALLBACK_MODEL + ":generateContent"))
+                .andRespond(withSuccess("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"summary\\\":\\\"Recovered from 500\\\",\\\"findings\\\":[]}\"}]}}]}", MediaType.APPLICATION_JSON));
+
+        ReviewResult result = engine.review(input);
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.getSummary()).isEqualTo("Recovered from 500");
     }
 
     @Test
-    void testReview_MalformedAiResponseText() {
+    void testReview_MalformedAiResponseText_DoesNotTriggerFallback() {
         ReviewInput input = new ReviewInput();
 
         String malformedGeminiResponse = """
@@ -206,5 +342,34 @@ class GeminiAiReviewEngineTest {
                 .isInstanceOf(GeminiAiReviewException.class)
                 .hasMessageContaining("Failed to parse Gemini review response into ReviewResult")
                 .hasMessageNotContaining(API_KEY);
+
+        mockServer.verify();
+    }
+
+    @Test
+    void testReview_WithResilienceExecutor_Transient503SucceedsOnRetry() {
+        com.pushkar.codereview.config.resilience.ResilienceProperties props = new com.pushkar.codereview.config.resilience.ResilienceProperties();
+        props.getRetry().setMaxAttempts(2);
+        props.getRetry().setInitialIntervalMs(10);
+        com.pushkar.codereview.config.resilience.ResilienceExecutor resExecutor = new com.pushkar.codereview.config.resilience.ResilienceExecutor(props, null);
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GeminiAiReviewEngine resilientEngine = new GeminiAiReviewEngine(builder, geminiProperties, promptBuilder, responseParser, null, resExecutor);
+
+        ReviewInput input = new ReviewInput();
+
+        // 1st attempt: 503 Service Unavailable
+        server.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        // 2nd attempt: Success on primary
+        server.expect(requestTo(BASE_URL + "/v1beta/models/" + MODEL + ":generateContent"))
+                .andRespond(withSuccess("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"summary\\\":\\\"Recovered after 503 on retry\\\",\\\"findings\\\":[]}\"}]}}]}", MediaType.APPLICATION_JSON));
+
+        ReviewResult result = resilientEngine.review(input);
+        server.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.getSummary()).isEqualTo("Recovered after 503 on retry");
     }
 }

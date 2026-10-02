@@ -43,6 +43,8 @@ services:
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-defaultWebhookSecret123}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-3.5-flash}
+      GEMINI_API_BASE_URL: ${GEMINI_API_BASE_URL:-https://generativelanguage.googleapis.com}
     volumes:
       - ./secrets:/app/secrets:ro
     ports:

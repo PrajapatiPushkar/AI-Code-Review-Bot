@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {
     "gemini.api-key=test-gemini-key-12345",
     "gemini.model=gemini-2.5-pro",
+    "gemini.fallback-model=gemini-3.5-flash-lite",
     "gemini.api-base-url=https://custom-gemini-host.com"
 })
 class GeminiPropertiesTest {
@@ -28,6 +29,7 @@ class GeminiPropertiesTest {
         assertThat(geminiProperties).isNotNull();
         assertThat(geminiProperties.getApiKey()).isEqualTo("test-gemini-key-12345");
         assertThat(geminiProperties.getModel()).isEqualTo("gemini-2.5-pro");
+        assertThat(geminiProperties.getFallbackModel()).isEqualTo("gemini-3.5-flash-lite");
         assertThat(geminiProperties.getApiBaseUrl()).isEqualTo("https://custom-gemini-host.com");
     }
 
@@ -35,6 +37,7 @@ class GeminiPropertiesTest {
     void testGeminiPropertiesDefaults() {
         GeminiProperties defaults = new GeminiProperties();
         assertThat(defaults.getModel()).isEqualTo("gemini-3.6-flash");
+        assertThat(defaults.getFallbackModel()).isEqualTo("gemini-3.5-flash");
         assertThat(defaults.getApiBaseUrl()).isEqualTo("https://generativelanguage.googleapis.com");
         assertThat(defaults.getApiKey()).isNull();
     }

@@ -63,7 +63,9 @@ public class ResilienceExecutor {
                 .minimumNumberOfCalls(cbProps.getMinimumNumberOfCalls())
                 .waitDurationInOpenState(Duration.ofMillis(cbProps.getWaitDurationInOpenStateMs()))
                 .permittedNumberOfCallsInHalfOpenState(cbProps.getPermittedNumberOfCallsInHalfOpenState())
+                .automaticTransitionFromOpenToHalfOpenEnabled(cbProps.isAutomaticTransitionFromOpenToHalfOpenEnabled())
                 .recordException(this::isTransientException)
+                .ignoreException(e -> !isTransientException(e))
                 .build();
         this.circuitBreakerRegistry = CircuitBreakerRegistry.of(cbConfig);
     }
@@ -77,9 +79,14 @@ public class ResilienceExecutor {
             r.getEventPublisher().onRetry(event -> {
                 int attempt = event.getNumberOfRetryAttempts();
                 String correlationId = MDC.get("correlationId");
-                log.warn("Retrying external call attempt {}/{} for dependency={} [correlationId={}]: {}",
-                        attempt, properties.getRetry().getMaxAttempts(), dep, correlationId,
-                        event.getLastThrowable() != null ? event.getLastThrowable().getMessage() : "Transient error");
+                String reviewId = MDC.get("reviewId");
+                Throwable lastThrowable = event.getLastThrowable();
+                String httpStatus = extractHttpStatus(lastThrowable);
+                String exceptionType = lastThrowable != null ? lastThrowable.getClass().getSimpleName() : "Unknown";
+                log.warn("Retrying external call attempt {}/{} for dependency={} [reviewId={}, correlationId={}, status={}, exceptionType={}]: {}",
+                        attempt, properties.getRetry().getMaxAttempts(), dep, reviewId, correlationId,
+                        httpStatus, exceptionType,
+                        lastThrowable != null ? lastThrowable.getMessage() : "Transient error");
 
                 if (codeReviewMetrics != null) {
                     codeReviewMetrics.recordRetry(dep);
@@ -88,31 +95,41 @@ public class ResilienceExecutor {
             return r;
         });
 
-        Supplier<T> decorated = Retry.decorateSupplier(retry, CircuitBreaker.decorateSupplier(circuitBreaker, supplier));
+        Supplier<T> retryDecorated = Retry.decorateSupplier(retry, supplier);
+        Supplier<T> decorated = CircuitBreaker.decorateSupplier(circuitBreaker, retryDecorated);
 
         try {
             return decorated.get();
         } catch (CallNotPermittedException e) {
             String correlationId = MDC.get("correlationId");
-            log.warn("Request rejected by open circuit breaker for dependency={} [correlationId={}]", dep, correlationId);
+            String reviewId = MDC.get("reviewId");
+            String cbState = circuitBreaker.getState().name();
+            log.warn("Request rejected by open circuit breaker for dependency={} [reviewId={}, correlationId={}, cbState={}, status=503, exceptionType={}]: {}",
+                    dep, reviewId, correlationId, cbState, e.getClass().getSimpleName(), e.getMessage());
 
             if (codeReviewMetrics != null) {
                 codeReviewMetrics.recordCircuitBreakerOpen(dep);
             }
 
             if ("gemini".equalsIgnoreCase(dep)) {
-                throw new GeminiAiReviewException("Gemini AI circuit breaker is OPEN. Dependency is currently unavailable.", e);
+                throw new GeminiAiReviewException("Gemini AI circuit breaker is OPEN. Dependency is currently unavailable.", 503, e);
             } else {
                 throw new GithubApiException("GitHub API circuit breaker is OPEN. Dependency is currently unavailable.", 503, e);
             }
         } catch (Exception e) {
+            String correlationId = MDC.get("correlationId");
+            String reviewId = MDC.get("reviewId");
+            String cbState = circuitBreaker.getState().name();
+            String httpStatus = extractHttpStatus(e);
             if (isTransientException(e)) {
                 if (codeReviewMetrics != null) {
                     codeReviewMetrics.recordExternalFailure(dep);
                 }
-                String correlationId = MDC.get("correlationId");
-                log.error("External call failed after retries for dependency={} [correlationId={}]: {}",
-                        dep, correlationId, e.getMessage());
+                log.error("External call failed after retries for dependency={} [reviewId={}, correlationId={}, cbState={}, status={}, exceptionType={}]: {}",
+                        dep, reviewId, correlationId, cbState, httpStatus, e.getClass().getSimpleName(), e.getMessage());
+            } else {
+                log.warn("Non-retryable external call failure for dependency={} [reviewId={}, correlationId={}, cbState={}, status={}, exceptionType={}]: {}",
+                        dep, reviewId, correlationId, cbState, httpStatus, e.getClass().getSimpleName(), e.getMessage());
             }
             throw e;
         }
@@ -123,7 +140,8 @@ public class ResilienceExecutor {
             return false;
         }
 
-        if (throwable instanceof IllegalArgumentException
+        if (throwable instanceof CallNotPermittedException
+                || throwable instanceof IllegalArgumentException
                 || throwable instanceof AccessDeniedException
                 || throwable instanceof ResourceNotFoundException
                 || throwable instanceof GithubInstallationVerificationException) {
@@ -135,12 +153,24 @@ public class ResilienceExecutor {
             return statusCode == 429 || statusCode == 502 || statusCode == 503 || statusCode == 504 || statusCode >= 500;
         }
 
-        if (throwable instanceof GeminiAiReviewException) {
+        if (throwable instanceof GeminiAiReviewException gare) {
+            if (gare.getStatusCode() != null) {
+                int status = gare.getStatusCode();
+                return status == 429 || status == 502 || status == 503 || status == 504 || status >= 500;
+            }
+            if (gare.getCause() != null && gare.getCause() != gare) {
+                return isTransientException(gare.getCause());
+            }
             String msg = throwable.getMessage() != null ? throwable.getMessage().toLowerCase() : "";
-            if (msg.contains("missing") || msg.contains("invalid") || msg.contains("not configured")) {
+            if (msg.contains("missing") || msg.contains("invalid") || msg.contains("not configured")
+                    || msg.contains("candidate-less") || msg.contains("empty") || msg.contains("failed to parse")
+                    || msg.contains("null response") || msg.contains("status code: 4")) {
                 return false;
             }
-            return true;
+            if (msg.contains("status code: 5") || msg.contains("status code: 429") || msg.contains("timeout") || msg.contains("unavailable") || msg.contains("high demand")) {
+                return true;
+            }
+            return false;
         }
 
         if (throwable instanceof org.springframework.web.client.HttpStatusCodeException httpEx) {
@@ -156,6 +186,25 @@ public class ResilienceExecutor {
         }
 
         return false;
+    }
+
+    private String extractHttpStatus(Throwable t) {
+        if (t == null) {
+            return "N/A";
+        }
+        if (t instanceof GithubApiException gae) {
+            return String.valueOf(gae.getStatusCode());
+        }
+        if (t instanceof GeminiAiReviewException gare && gare.getStatusCode() != null) {
+            return String.valueOf(gare.getStatusCode());
+        }
+        if (t instanceof org.springframework.web.client.HttpStatusCodeException hsce) {
+            return String.valueOf(hsce.getStatusCode().value());
+        }
+        if (t.getCause() != null && t.getCause() != t) {
+            return extractHttpStatus(t.getCause());
+        }
+        return "N/A";
     }
 
     public CircuitBreaker getCircuitBreaker(String dependencyName) {

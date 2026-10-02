@@ -3,6 +3,7 @@ package com.pushkar.codereview.resilience;
 import com.pushkar.codereview.config.CodeReviewMetrics;
 import com.pushkar.codereview.config.resilience.ResilienceExecutor;
 import com.pushkar.codereview.config.resilience.ResilienceProperties;
+import com.pushkar.codereview.exception.GeminiAiReviewException;
 import com.pushkar.codereview.exception.GithubApiException;
 import com.pushkar.codereview.exception.ResourceNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -63,6 +64,69 @@ class RetryPolicyTest {
         assertThat(callCount.get()).isEqualTo(3);
         assertThat(metrics.getRetryCounter("github").count()).isEqualTo(2.0);
         assertThat(metrics.getExternalFailureCounter("github").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void testTransientGemini503_SucceedsOnSecondAttempt() {
+        AtomicInteger callCount = new AtomicInteger(0);
+
+        String result = executor.executeSupplier("gemini", () -> {
+            int count = callCount.incrementAndGet();
+            if (count == 1) {
+                throw new GeminiAiReviewException("Gemini API HTTP request failed with status code: 503", 503);
+            }
+            return "AI_SUCCESS";
+        });
+
+        assertThat(result).isEqualTo("AI_SUCCESS");
+        assertThat(callCount.get()).isEqualTo(2);
+        assertThat(metrics.getRetryCounter("gemini").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void testTransientGemini503_ExhaustsRetries() {
+        AtomicInteger callCount = new AtomicInteger(0);
+
+        assertThatThrownBy(() -> executor.executeSupplier("gemini", () -> {
+            callCount.incrementAndGet();
+            throw new GeminiAiReviewException("Gemini API HTTP request failed with status code: 503", 503);
+        }))
+        .isInstanceOf(GeminiAiReviewException.class)
+        .hasMessageContaining("status code: 503");
+
+        assertThat(callCount.get()).isEqualTo(3);
+        assertThat(metrics.getRetryCounter("gemini").count()).isEqualTo(2.0);
+        assertThat(metrics.getExternalFailureCounter("gemini").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void testNonRetryableGemini400_FailsImmediatelyWithoutRetry() {
+        AtomicInteger callCount = new AtomicInteger(0);
+
+        assertThatThrownBy(() -> executor.executeSupplier("gemini", () -> {
+            callCount.incrementAndGet();
+            throw new GeminiAiReviewException("Gemini API HTTP request failed with status code: 400", 400);
+        }))
+        .isInstanceOf(GeminiAiReviewException.class)
+        .hasMessageContaining("status code: 400");
+
+        assertThat(callCount.get()).isEqualTo(1);
+        assertThat(metrics.getRetryCounter("gemini")).isNull();
+    }
+
+    @Test
+    void testMissingApiKey_FailsImmediatelyWithoutRetry() {
+        AtomicInteger callCount = new AtomicInteger(0);
+
+        assertThatThrownBy(() -> executor.executeSupplier("gemini", () -> {
+            callCount.incrementAndGet();
+            throw new GeminiAiReviewException("Gemini API key is missing or not configured. Please set GEMINI_API_KEY in your .env file.");
+        }))
+        .isInstanceOf(GeminiAiReviewException.class)
+        .hasMessageContaining("missing or not configured");
+
+        assertThat(callCount.get()).isEqualTo(1);
+        assertThat(metrics.getRetryCounter("gemini")).isNull();
     }
 
     @Test

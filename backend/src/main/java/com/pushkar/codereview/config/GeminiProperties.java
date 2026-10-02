@@ -15,6 +15,8 @@ public class GeminiProperties {
     @NotBlank(message = "Gemini model must not be blank")
     private String model = "gemini-3.6-flash";
 
+    private String fallbackModel = "gemini-3.5-flash";
+
     @NotBlank(message = "Gemini API base URL must not be blank")
     private String apiBaseUrl = "https://generativelanguage.googleapis.com";
 
@@ -22,9 +24,16 @@ public class GeminiProperties {
     }
 
     public GeminiProperties(String apiKey, String model, String apiBaseUrl) {
+        this(apiKey, model, "gemini-3.5-flash", apiBaseUrl);
+    }
+
+    public GeminiProperties(String apiKey, String model, String fallbackModel, String apiBaseUrl) {
         this.apiKey = apiKey;
         if (model != null) {
             this.model = model;
+        }
+        if (fallbackModel != null) {
+            this.fallbackModel = fallbackModel;
         }
         if (apiBaseUrl != null) {
             this.apiBaseUrl = apiBaseUrl;
@@ -47,6 +56,14 @@ public class GeminiProperties {
         this.model = model;
     }
 
+    public String getFallbackModel() {
+        return fallbackModel;
+    }
+
+    public void setFallbackModel(String fallbackModel) {
+        this.fallbackModel = fallbackModel;
+    }
+
     public String getApiBaseUrl() {
         return apiBaseUrl;
     }
@@ -60,6 +77,7 @@ public class GeminiProperties {
         return "GeminiProperties{" +
                 "apiKey='" + (apiKey != null && !apiKey.isBlank() ? "[PROTECTED]" : null) + '\'' +
                 ", model='" + model + '\'' +
+                ", fallbackModel='" + fallbackModel + '\'' +
                 ", apiBaseUrl='" + apiBaseUrl + '\'' +
                 '}';
     }

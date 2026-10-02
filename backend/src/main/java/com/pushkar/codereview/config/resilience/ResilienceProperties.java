@@ -80,6 +80,7 @@ public class ResilienceProperties {
         private int minimumNumberOfCalls = 5;
         private long waitDurationInOpenStateMs = 10000;
         private int permittedNumberOfCallsInHalfOpenState = 3;
+        private boolean automaticTransitionFromOpenToHalfOpenEnabled = true;
 
         public float getFailureRateThreshold() {
             return failureRateThreshold;
@@ -119,6 +120,14 @@ public class ResilienceProperties {
 
         public void setPermittedNumberOfCallsInHalfOpenState(int permittedNumberOfCallsInHalfOpenState) {
             this.permittedNumberOfCallsInHalfOpenState = permittedNumberOfCallsInHalfOpenState;
+        }
+
+        public boolean isAutomaticTransitionFromOpenToHalfOpenEnabled() {
+            return automaticTransitionFromOpenToHalfOpenEnabled;
+        }
+
+        public void setAutomaticTransitionFromOpenToHalfOpenEnabled(boolean automaticTransitionFromOpenToHalfOpenEnabled) {
+            this.automaticTransitionFromOpenToHalfOpenEnabled = automaticTransitionFromOpenToHalfOpenEnabled;
         }
     }
 
