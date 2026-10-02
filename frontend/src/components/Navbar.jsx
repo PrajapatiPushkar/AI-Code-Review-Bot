@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import ThemeToggle from './common/ThemeToggle';
 
 const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -44,6 +45,7 @@ const Navbar = () => {
         </nav>
 
         <div className="navbar-user">
+          <ThemeToggle />
           {user && <span className="user-badge">{user.usernameOrEmail}</span>}
           <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
             Logout

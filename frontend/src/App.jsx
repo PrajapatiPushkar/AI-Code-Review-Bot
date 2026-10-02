@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
@@ -12,7 +13,8 @@ import ReviewFindingsPage from './pages/ReviewFindingsPage';
 
 function App() {
   return (
-    <AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
       <BrowserRouter>
         <div className="app-container">
           <Navbar />
@@ -70,7 +72,8 @@ function App() {
           </main>
         </div>
       </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
