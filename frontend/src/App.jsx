@@ -11,7 +11,7 @@ import ReviewsPage from './pages/ReviewsPage';
 import SubmitReviewPage from './pages/SubmitReviewPage';
 import ReviewDetailsPage from './pages/ReviewDetailsPage';
 import ReviewFindingsPage from './pages/ReviewFindingsPage';
-import RepositoriesPlaceholderPage from './pages/RepositoriesPlaceholderPage';
+import RepositoriesPage from './pages/RepositoriesPage';
 import FindingsExplorerPlaceholderPage from './pages/FindingsExplorerPlaceholderPage';
 import SettingsPlaceholderPage from './pages/SettingsPlaceholderPage';
 
@@ -34,7 +34,7 @@ function App() {
               }
             >
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/repositories" element={<RepositoriesPlaceholderPage />} />
+              <Route path="/repositories" element={<RepositoriesPage />} />
               <Route path="/reviews" element={<ReviewsPage />} />
               <Route path="/reviews/new" element={<SubmitReviewPage />} />
               <Route path="/reviews/:id" element={<ReviewDetailsPage />} />

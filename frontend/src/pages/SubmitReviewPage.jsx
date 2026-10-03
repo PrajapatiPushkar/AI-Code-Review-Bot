@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import reviewService from '../services/reviewService';
 import ErrorMessage from '../components/ErrorMessage';
 
 const SubmitReviewPage = () => {
-  const [installationId, setInstallationId] = useState('');
-  const [owner, setOwner] = useState('');
-  const [repository, setRepository] = useState('');
+  const location = useLocation();
+  const [installationId, setInstallationId] = useState(
+    location.state?.installationId ? String(location.state.installationId) : ''
+  );
+  const [owner, setOwner] = useState(location.state?.owner || '');
+  const [repository, setRepository] = useState(location.state?.repository || '');
   const [pullRequestNumber, setPullRequestNumber] = useState('');
   const [commitSha, setCommitSha] = useState('');
 

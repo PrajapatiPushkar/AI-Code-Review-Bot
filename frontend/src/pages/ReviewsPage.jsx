@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import reviewService from '../services/reviewService';
 import ErrorMessage from '../components/ErrorMessage';
 import ReviewFilters from '../components/reviews/ReviewFilters';
@@ -7,6 +7,10 @@ import ReviewTable from '../components/reviews/ReviewTable';
 import ReviewPagination from '../components/reviews/ReviewPagination';
 
 const ReviewsPage = () => {
+  const [searchParams] = useSearchParams();
+  const initialOwner = searchParams.get('owner') || '';
+  const initialRepo = searchParams.get('repository') || searchParams.get('repo') || '';
+
   const [reviews, setReviews] = useState([]);
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(10);
@@ -15,8 +19,8 @@ const ReviewsPage = () => {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [ownerFilter, setOwnerFilter] = useState('');
-  const [repoFilter, setRepoFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState(initialOwner);
+  const [repoFilter, setRepoFilter] = useState(initialRepo);
   const [prFilter, setPrFilter] = useState('');
   const [sortFilter, setSortFilter] = useState('createdAt,desc');
 
