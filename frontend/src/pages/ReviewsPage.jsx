@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import reviewService from '../services/reviewService';
-import Loading from '../components/Loading';
 import ErrorMessage from '../components/ErrorMessage';
-import EmptyState from '../components/EmptyState';
+import ReviewFilters from '../components/reviews/ReviewFilters';
+import ReviewTable from '../components/reviews/ReviewTable';
+import ReviewPagination from '../components/reviews/ReviewPagination';
 
 const ReviewsPage = () => {
   const [reviews, setReviews] = useState([]);
@@ -19,10 +20,12 @@ const ReviewsPage = () => {
   const [prFilter, setPrFilter] = useState('');
   const [sortFilter, setSortFilter] = useState('createdAt,desc');
 
+  // Request & Feedback State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchTrigger, setSearchTrigger] = useState(0);
 
-  const fetchReviews = async () => {
+  const fetchReviews = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -36,7 +39,9 @@ const ReviewsPage = () => {
       if (statusFilter && statusFilter !== 'ALL') params.status = statusFilter;
       if (ownerFilter.trim()) params.owner = ownerFilter.trim();
       if (repoFilter.trim()) params.repository = repoFilter.trim();
-      if (prFilter.trim() && !isNaN(Number(prFilter))) params.pullRequestNumber = parseInt(prFilter.trim(), 10);
+      if (prFilter.trim() && !isNaN(Number(prFilter))) {
+        params.pullRequestNumber = parseInt(prFilter.trim(), 10);
+      }
 
       const data = await reviewService.getCodeReviews(params);
       setReviews(data.content || []);
@@ -47,16 +52,20 @@ const ReviewsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, size, statusFilter, sortFilter, ownerFilter, repoFilter, prFilter]);
 
+  // Fetch when page, size, status, sort or explicit search trigger changes
   useEffect(() => {
     fetchReviews();
-  }, [page, size, statusFilter, sortFilter]);
+  }, [page, size, statusFilter, sortFilter, searchTrigger]);
 
   const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    setPage(0);
-    fetchReviews();
+    if (e && e.preventDefault) e.preventDefault();
+    if (page === 0) {
+      setSearchTrigger((prev) => prev + 1);
+    } else {
+      setPage(0);
+    }
   };
 
   const handleResetFilters = () => {
@@ -65,6 +74,29 @@ const ReviewsPage = () => {
     setRepoFilter('');
     setPrFilter('');
     setSortFilter('createdAt,desc');
+    if (page === 0) {
+      setSearchTrigger((prev) => prev + 1);
+    } else {
+      setPage(0);
+    }
+  };
+
+  const handleStatusChange = (newStatus) => {
+    setStatusFilter(newStatus);
+    setPage(0);
+  };
+
+  const handleSortChange = (newSort) => {
+    setSortFilter(newSort);
+    setPage(0);
+  };
+
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+  };
+
+  const handleSizeChange = (newSize) => {
+    setSize(newSize);
     setPage(0);
   };
 
@@ -80,182 +112,127 @@ const ReviewsPage = () => {
     return `${minutes}m ${seconds % 60}s`;
   };
 
+  const hasActiveFilters =
+    statusFilter !== 'ALL' ||
+    ownerFilter.trim() !== '' ||
+    repoFilter.trim() !== '' ||
+    prFilter.trim() !== '' ||
+    sortFilter !== 'createdAt,desc';
+
   return (
-    <div>
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <h1 className="page-title">Review History</h1>
-          <p className="page-subtitle">Track, filter, and inspect past automated pull request reviews.</p>
+    <div className="reviews-page">
+      {/* Page Header */}
+      <div className="page-header reviews-page-header">
+        <div className="reviews-header-info">
+          <div className="reviews-title-row">
+            <h1 className="page-title">Reviews</h1>
+            <span className="badge badge-info reviews-count-badge" aria-label={`${totalElements} total reviews`}>
+              {totalElements} {totalElements === 1 ? 'review' : 'reviews'}
+            </span>
+          </div>
+          <p className="page-subtitle">Review history and AI analysis activity.</p>
         </div>
-        <Link to="/reviews/new" className="btn btn-primary">
-          + Submit New Review
+        <Link to="/reviews/new" className="btn btn-primary reviews-new-btn">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          <span>New Review</span>
         </Link>
       </div>
 
-      {/* Filter & Search Bar */}
-      <form className="filters-bar" onSubmit={handleSearchSubmit}>
-        <div className="filter-item">
-          <label className="form-label">Status Filter</label>
-          <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-            {['ALL', 'COMPLETED', 'IN_PROGRESS', 'FAILED'].map((st) => (
-              <button
-                type="button"
-                key={st}
-                className={`btn btn-sm ${statusFilter === st ? 'btn-primary' : 'btn-outline'}`}
-                style={{ padding: '0.25rem 0.625rem', fontSize: '0.75rem' }}
-                onClick={() => {
-                  setStatusFilter(st);
-                  setPage(0);
-                }}
-              >
-                {st}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Modern Filter & Search Controls */}
+      <ReviewFilters
+        statusFilter={statusFilter}
+        onStatusChange={handleStatusChange}
+        ownerFilter={ownerFilter}
+        onOwnerChange={setOwnerFilter}
+        repoFilter={repoFilter}
+        onRepoChange={setRepoFilter}
+        prFilter={prFilter}
+        onPrChange={setPrFilter}
+        sortFilter={sortFilter}
+        onSortChange={handleSortChange}
+        onSubmit={handleSearchSubmit}
+        onReset={handleResetFilters}
+        isLoading={loading}
+      />
 
-        <div className="filter-item">
-          <label className="form-label">Owner</label>
-          <input
-            type="text"
-            className="form-input"
-            placeholder="e.g. octocat"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-          />
-        </div>
-
-        <div className="filter-item">
-          <label className="form-label">Repository</label>
-          <input
-            type="text"
-            className="form-input"
-            placeholder="e.g. hello-world"
-            value={repoFilter}
-            onChange={(e) => setRepoFilter(e.target.value)}
-          />
-        </div>
-
-        <div className="filter-item">
-          <label className="form-label">PR #</label>
-          <input
-            type="number"
-            className="form-input"
-            placeholder="e.g. 42"
-            value={prFilter}
-            onChange={(e) => setPrFilter(e.target.value)}
-          />
-        </div>
-
-        <div className="filter-item">
-          <label className="form-label">Sort By</label>
-          <select
-            className="form-select"
-            value={sortFilter}
-            onChange={(e) => {
-              setSortFilter(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="createdAt,desc">Newest First</option>
-            <option value="createdAt,asc">Oldest First</option>
-            <option value="totalFindings,desc">Most Findings</option>
-          </select>
-        </div>
-
-        <div className="filter-item" style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem' }}>
-          <button type="submit" className="btn btn-primary btn-sm">
-            Search
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={handleResetFilters}>
-            Reset
-          </button>
-        </div>
-      </form>
-
+      {/* Persistent Error State */}
       {error && <ErrorMessage message={error} onRetry={fetchReviews} />}
 
-      {loading ? (
-        <Loading message="Fetching code review history..." />
-      ) : reviews.length === 0 ? (
-        <EmptyState title="No Review History Found" message="No code reviews matched your criteria." />
-      ) : (
-        <div className="card">
-          <div className="table-responsive">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Repository</th>
-                  <th>PR #</th>
-                  <th>Status</th>
-                  <th>Findings</th>
-                  <th>Comments</th>
-                  <th>Created At</th>
-                  <th>Duration</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviews.map((review) => {
-                  const repoName = review.repository || review.repositoryName || 'N/A';
-                  const fullRepo = review.owner ? `${review.owner}/${repoName}` : repoName;
-                  return (
-                    <tr key={review.id}>
-                      <td>#{review.id}</td>
-                      <td><strong>{fullRepo}</strong></td>
-                      <td>#{review.pullRequestNumber}</td>
-                      <td>
-                        <span className={`badge badge-${(review.status || '').toLowerCase()}`}>
-                          {review.status}
-                        </span>
-                      </td>
-                      <td>{review.totalFindings || 0}</td>
-                      <td>{review.postedCommentsCount || 0}</td>
-                      <td>{new Date(review.createdAt).toLocaleString()}</td>
-                      <td>{formatDuration(review.createdAt, review.completedAt)}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <Link to={`/reviews/${review.id}`} className="btn btn-secondary btn-sm">
-                            View
-                          </Link>
-                          {review.status === 'COMPLETED' && (
-                            <Link to={`/reviews/${review.id}/findings`} className="btn btn-outline btn-sm">
-                              Findings
-                            </Link>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* Reviews Table Card Container */}
+      <div className="card reviews-table-card">
+        <div className="reviews-table-header">
+          <div className="reviews-table-title-group">
+            <h2 className="reviews-table-heading">Review Activity</h2>
+            {hasActiveFilters && (
+              <span className="reviews-filtered-indicator">Filtered results</span>
+            )}
           </div>
-
-          <div className="pagination">
-            <span className="pagination-info">
-              Showing page {page + 1} of {totalPages || 1} ({totalElements} total reviews)
-            </span>
-            <div className="pagination-controls">
-              <button
-                className="btn btn-outline btn-sm"
-                disabled={page === 0}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </button>
-              <button
-                className="btn btn-outline btn-sm"
-                disabled={page >= totalPages - 1}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm reviews-refresh-btn"
+            onClick={fetchReviews}
+            disabled={loading}
+            title="Refresh review history"
+            aria-label="Refresh review history"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={loading ? 'spinning' : ''}
+              aria-hidden="true"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
+            </svg>
+            <span className="reviews-refresh-text">Refresh</span>
+          </button>
         </div>
-      )}
+
+        {/* Real table with SkeletonRows during loading */}
+        <ReviewTable
+          reviews={reviews}
+          loading={loading}
+          formatDuration={formatDuration}
+          sortFilter={sortFilter}
+          onSortChange={handleSortChange}
+          onResetFilters={handleResetFilters}
+          hasActiveFilters={hasActiveFilters}
+          totalElements={totalElements}
+        />
+
+        {/* Server-side Pagination */}
+        {!loading && reviews.length > 0 && (
+          <ReviewPagination
+            page={page}
+            size={size}
+            totalPages={totalPages}
+            totalElements={totalElements}
+            onPageChange={handlePageChange}
+            onSizeChange={handleSizeChange}
+            disabled={loading}
+          />
+        )}
+      </div>
     </div>
   );
 };
