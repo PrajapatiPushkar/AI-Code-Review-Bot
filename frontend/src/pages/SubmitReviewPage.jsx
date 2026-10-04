@@ -1,50 +1,277 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import reviewService from '../services/reviewService';
+import repositoryService from '../services/repositoryService';
+import useToast from '../hooks/useToast';
 import ErrorMessage from '../components/ErrorMessage';
+import ReviewSubmissionHeader from '../components/submit-review/ReviewSubmissionHeader';
+import ReviewTargetCard from '../components/submit-review/ReviewTargetCard';
+import ReviewTargetForm from '../components/submit-review/ReviewTargetForm';
+import PullRequestInput from '../components/submit-review/PullRequestInput';
+import SubmissionSummary from '../components/submit-review/SubmissionSummary';
+import SubmissionActions from '../components/submit-review/SubmissionActions';
+import SubmitReviewSkeleton from '../components/submit-review/SubmitReviewSkeleton';
 
-const SubmitReviewPage = () => {
+export const SubmitReviewPage = () => {
   const location = useLocation();
-  const [installationId, setInstallationId] = useState(
-    location.state?.installationId ? String(location.state.installationId) : ''
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  // Navigation state passed from Repositories page or direct URL
+  const originState = location.state;
+  const initialInstallationId = originState?.installationId ? String(originState.installationId) : '';
+  const initialOwner = originState?.owner || '';
+  const initialRepository = originState?.repository || '';
+  const hasOriginContext = Boolean(initialInstallationId && initialRepository);
+
+  // Form Field States
+  const [selectedInstallationId, setSelectedInstallationId] = useState(initialInstallationId);
+  const [manualInstallationId, setManualInstallationId] = useState(initialInstallationId);
+  const [owner, setOwner] = useState(initialOwner);
+  const [repositoryName, setRepositoryName] = useState(initialRepository);
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState(
+    initialOwner && initialRepository ? `${initialOwner}/${initialRepository}` : initialRepository
   );
-  const [owner, setOwner] = useState(location.state?.owner || '');
-  const [repository, setRepository] = useState(location.state?.repository || '');
   const [pullRequestNumber, setPullRequestNumber] = useState('');
   const [commitSha, setCommitSha] = useState('');
 
+  // Mode & UI States
+  const [isManualMode, setIsManualMode] = useState(false);
+  const [showTargetSelector, setShowTargetSelector] = useState(!hasOriginContext);
+
+  // API Data States
+  const [installations, setInstallations] = useState([]);
+  const [loadingInstallations, setLoadingInstallations] = useState(true);
+  const [repositories, setRepositories] = useState([]);
+  const [loadingRepositories, setLoadingRepositories] = useState(false);
+
+  // Submission & Validation States
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const [submittedReview, setSubmittedReview] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
+  const [apiError, setApiError] = useState(null);
 
-  const navigate = useNavigate();
+  // Ref to track latest repository request
+  const repoFetchIdRef = useRef(null);
 
+  // Fetch installations on mount
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchInstallations = async () => {
+      try {
+        setLoadingInstallations(true);
+        const data = await repositoryService.getInstallations();
+        if (!isMounted) return;
+
+        const list = Array.isArray(data) ? data : [];
+        setInstallations(list);
+
+        if (list.length > 0) {
+          // If navigation state had an installationId, verify or preselect it
+          if (initialInstallationId) {
+            const matched = list.find(
+              (inst) => String(inst.githubInstallationId || inst.id) === initialInstallationId
+            );
+            if (matched) {
+              setSelectedInstallationId(initialInstallationId);
+            } else {
+              setSelectedInstallationId(initialInstallationId);
+            }
+          } else {
+            // Auto-select first installation if none pre-specified
+            const firstId = String(list[0].githubInstallationId || list[0].id);
+            setSelectedInstallationId(firstId);
+            setManualInstallationId(firstId);
+          }
+        } else if (!initialInstallationId) {
+          // No connected installations found, toggle to manual mode
+          setIsManualMode(true);
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        // Don't block manual entry if installations fail to load
+        if (!initialInstallationId) {
+          setIsManualMode(true);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingInstallations(false);
+        }
+      }
+    };
+
+    fetchInstallations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [initialInstallationId]);
+
+  // Fetch repositories whenever selectedInstallationId changes in connected mode
+  const fetchRepositories = useCallback(async (instId) => {
+    if (!instId || isNaN(Number(instId))) {
+      setRepositories([]);
+      return;
+    }
+
+    repoFetchIdRef.current = instId;
+
+    try {
+      setLoadingRepositories(true);
+      const data = await repositoryService.getRepositories(instId, { page: 1, perPage: 100 });
+
+      if (repoFetchIdRef.current === instId) {
+        const repoList = Array.isArray(data) ? data : [];
+        setRepositories(repoList);
+
+        // If repository was provided by navigation state and we haven't selected yet
+        if (initialRepository && String(instId) === initialInstallationId) {
+          const matchedRepo = repoList.find(
+            (r) =>
+              (r.name && r.name.toLowerCase() === initialRepository.toLowerCase()) ||
+              (r.full_name && r.full_name.toLowerCase() === `${initialOwner}/${initialRepository}`.toLowerCase())
+          );
+          if (matchedRepo) {
+            const full = matchedRepo.full_name || matchedRepo.fullName || matchedRepo.name;
+            setSelectedRepoFullName(full);
+            setRepositoryName(matchedRepo.name || initialRepository);
+            if (matchedRepo.owner?.login) {
+              setOwner(matchedRepo.owner.login);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (repoFetchIdRef.current === instId) {
+        setRepositories([]);
+      }
+    } finally {
+      if (repoFetchIdRef.current === instId) {
+        setLoadingRepositories(false);
+      }
+    }
+  }, [initialInstallationId, initialOwner, initialRepository]);
+
+  useEffect(() => {
+    if (!isManualMode && selectedInstallationId) {
+      fetchRepositories(selectedInstallationId);
+    }
+  }, [isManualMode, selectedInstallationId, fetchRepositories]);
+
+  // Find active installation metadata
+  const effectiveInstallationId = isManualMode ? manualInstallationId : selectedInstallationId;
+  const currentInstallation = installations.find(
+    (inst) => String(inst.githubInstallationId || inst.id) === String(effectiveInstallationId)
+  );
+  const installationAccount = currentInstallation?.githubAccountLogin || '';
+
+  // Handler: Change Installation
+  const handleSelectInstallation = (newId) => {
+    if (newId === selectedInstallationId) return;
+
+    setSelectedInstallationId(newId);
+    setManualInstallationId(newId);
+
+    // Consistency rule: Reset selected repository when switching installations
+    setSelectedRepoFullName('');
+    setRepositoryName('');
+    setOwner('');
+    setFormErrors((prev) => ({ ...prev, installationId: null, repository: null, owner: null }));
+  };
+
+  // Handler: Select Repository from Dropdown
+  const handleSelectRepository = (fullName) => {
+    setSelectedRepoFullName(fullName);
+
+    if (!fullName) {
+      setRepositoryName('');
+      setOwner('');
+      return;
+    }
+
+    const matched = repositories.find(
+      (r) => (r.full_name || r.fullName || r.name) === fullName
+    );
+
+    if (matched) {
+      setRepositoryName(matched.name);
+      const repoOwner =
+        matched.owner?.login ||
+        (fullName.includes('/') ? fullName.split('/')[0] : installationAccount || '');
+      setOwner(repoOwner);
+    } else if (fullName.includes('/')) {
+      const [parsedOwner, parsedRepo] = fullName.split('/');
+      setOwner(parsedOwner);
+      setRepositoryName(parsedRepo);
+    } else {
+      setRepositoryName(fullName);
+      setOwner(installationAccount || '');
+    }
+
+    setFormErrors((prev) => ({ ...prev, repository: null, owner: null }));
+  };
+
+  // Handler: Manual Mode Toggle
+  const handleToggleManualMode = (manual) => {
+    setIsManualMode(manual);
+    setFormErrors({});
+  };
+
+  // Form Validation
+  const validateForm = () => {
+    const errors = {};
+
+    // 1. Installation ID
+    const instIdNum = Number(effectiveInstallationId);
+    if (!effectiveInstallationId || isNaN(instIdNum) || !Number.isInteger(instIdNum) || instIdNum <= 0) {
+      errors.installationId = 'A valid positive GitHub Installation ID is required.';
+    }
+
+    // 2. Owner
+    if (!owner.trim()) {
+      errors.owner = 'Repository owner is required.';
+    }
+
+    // 3. Repository
+    if (!repositoryName.trim()) {
+      errors.repository = 'Repository name is required.';
+    }
+
+    // 4. Pull Request Number (strictly positive integer)
+    const prNum = Number(pullRequestNumber);
+    if (!pullRequestNumber || isNaN(prNum) || !Number.isInteger(prNum) || prNum <= 0) {
+      errors.pullRequestNumber = 'Pull Request number must be a positive integer.';
+    }
+
+    // 5. Optional Commit SHA
+    if (commitSha.trim()) {
+      if (commitSha.trim().length > 64) {
+        errors.commitSha = 'Commit SHA cannot exceed 64 characters.';
+      } else if (/\s/.test(commitSha.trim())) {
+        errors.commitSha = 'Commit SHA cannot contain spaces.';
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Submit Handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
+    setApiError(null);
 
-    // Frontend Validation
-    if (!installationId || isNaN(Number(installationId)) || Number(installationId) <= 0) {
-      setError('Please provide a valid positive GitHub Installation ID.');
-      return;
-    }
-    if (!owner.trim()) {
-      setError('Repository owner is required.');
-      return;
-    }
-    if (!repository.trim()) {
-      setError('Repository name is required.');
-      return;
-    }
-    if (!pullRequestNumber || isNaN(Number(pullRequestNumber)) || Number(pullRequestNumber) <= 0) {
-      setError('Please provide a valid positive Pull Request Number.');
+    if (submitting) return;
+
+    if (!validateForm()) {
+      toast.warning('Please resolve the validation errors before submitting.');
       return;
     }
 
     const payload = {
-      installationId: Number(installationId),
+      installationId: Number(effectiveInstallationId),
       owner: owner.trim(),
-      repository: repository.trim(),
+      repository: repositoryName.trim(),
       pullRequestNumber: Number(pullRequestNumber),
       ...(commitSha.trim() ? { commitSha: commitSha.trim() } : {})
     };
@@ -52,185 +279,142 @@ const SubmitReviewPage = () => {
     try {
       setSubmitting(true);
       const result = await reviewService.submitPullRequestReview(payload);
-      setSubmittedReview(result);
+
+      // Verify returned review ID
+      const newReviewId = result?.codeReviewId || result?.id;
+
+      toast.success(
+        `Review started for ${payload.owner}/${payload.repository} #${payload.pullRequestNumber}. The AI review is running in the background.`
+      );
+
+      if (newReviewId) {
+        navigate(`/reviews/${newReviewId}`);
+      } else {
+        // Fallback navigation to reviews list if id not returned
+        navigate('/reviews');
+      }
     } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to submit pull request for AI review. Please check inputs.';
-      setError(msg);
-    } finally {
+      const msg =
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to submit pull request for AI review. Please check inputs and permissions.';
+      setApiError(msg);
+      toast.error(msg);
       setSubmitting(false);
     }
   };
 
+  // Initial loading skeleton before installations resolution
+  if (loadingInstallations && !hasOriginContext) {
+    return <SubmitReviewSkeleton />;
+  }
+
+  const cancelPath = hasOriginContext ? '/repositories' : '/reviews';
+
   return (
-    <div>
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <h1 className="page-title">Submit Pull Request Review</h1>
-          <p className="page-subtitle">Trigger an asynchronous AI code review for a GitHub PR.</p>
-        </div>
-        <Link to="/reviews" className="btn btn-outline btn-sm">
-          ← Back to Reviews
-        </Link>
-      </div>
+    <div className="submit-review-container">
+      {/* Page Header */}
+      <ReviewSubmissionHeader
+        hasOriginState={hasOriginContext}
+        repository={repositoryName ? `${owner}/${repositoryName}` : ''}
+      />
 
-      {error && <ErrorMessage message={error} />}
-
-      {submittedReview ? (
-        <div className="card" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center', padding: '2.5rem' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '1rem', color: 'var(--status-completed)' }}>✅</div>
-          <h2 className="card-title" style={{ justifyContent: 'center', marginBottom: '0.5rem' }}>
-            Code Review Submitted Successfully
-          </h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-            Review request has been accepted and is processing asynchronously in the background.
-          </p>
-
-          <div className="card" style={{ backgroundColor: 'var(--bg-color)', textAlign: 'left', marginBottom: '2rem' }}>
-            <table className="data-table">
-              <tbody>
-                <tr>
-                  <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Review ID</td>
-                  <td><strong>#{submittedReview.codeReviewId}</strong></td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Repository</td>
-                  <td>{submittedReview.owner ? `${submittedReview.owner}/${submittedReview.repository}` : submittedReview.repository}</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Pull Request</td>
-                  <td>#{submittedReview.pullRequestNumber}</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Initial Status</td>
-                  <td>
-                    <span className={`badge badge-${(submittedReview.status || 'in_progress').toLowerCase()}`}>
-                      {submittedReview.status || 'IN_PROGRESS'}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-            <button
-              className="btn btn-primary"
-              onClick={() => navigate(`/reviews/${submittedReview.codeReviewId}`)}
-            >
-              View Review →
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                setSubmittedReview(null);
-                setPullRequestNumber('');
-                setCommitSha('');
-              }}
-            >
-              Submit Another PR
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="card" style={{ maxWidth: '640px', margin: '0 auto' }}>
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label className="form-label" htmlFor="installationId">
-                GitHub App Installation ID *
-              </label>
-              <input
-                id="installationId"
-                type="number"
-                className="form-input"
-                placeholder="e.g. 100"
-                value={installationId}
-                onChange={(e) => setInstallationId(e.target.value)}
-                disabled={submitting}
-                required
-              />
-              <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                Numerical ID of the GitHub App installation authorized for this repository.
-              </small>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div className="form-group">
-                <label className="form-label" htmlFor="owner">
-                  Repository Owner *
-                </label>
-                <input
-                  id="owner"
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. octocat"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  disabled={submitting}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="repository">
-                  Repository Name *
-                </label>
-                <input
-                  id="repository"
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. hello-world"
-                  value={repository}
-                  onChange={(e) => setRepository(e.target.value)}
-                  disabled={submitting}
-                  required
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div className="form-group">
-                <label className="form-label" htmlFor="pullRequestNumber">
-                  Pull Request Number *
-                </label>
-                <input
-                  id="pullRequestNumber"
-                  type="number"
-                  className="form-input"
-                  placeholder="e.g. 42"
-                  value={pullRequestNumber}
-                  onChange={(e) => setPullRequestNumber(e.target.value)}
-                  disabled={submitting}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="commitSha">
-                  Commit SHA (Optional)
-                </label>
-                <input
-                  id="commitSha"
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. 6dcb09b5..."
-                  value={commitSha}
-                  onChange={(e) => setCommitSha(e.target.value)}
-                  disabled={submitting}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-              <Link to="/reviews" className="btn btn-secondary">
-                Cancel
-              </Link>
-              <button type="submit" className="btn btn-primary" disabled={submitting}>
-                {submitting ? 'Submitting PR for AI Review...' : 'Submit for AI Review'}
-              </button>
-            </div>
-          </form>
+      {/* Global API Error Notice */}
+      {apiError && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <ErrorMessage
+            message={apiError}
+            onRetry={() => {
+              setApiError(null);
+            }}
+          />
         </div>
       )}
+
+      <form onSubmit={handleSubmit} noValidate>
+        <div className="submit-review-grid">
+          {/* Main Form Fields Column */}
+          <div className="submit-main-col">
+            {/* Context Card (shown when target repository is confirmed) */}
+            {owner && repositoryName && !showTargetSelector && (
+              <ReviewTargetCard
+                owner={owner}
+                repository={repositoryName}
+                installationId={effectiveInstallationId}
+                installationAccount={installationAccount}
+                onChangeTarget={() => setShowTargetSelector(true)}
+              />
+            )}
+
+            {/* Target Selection Form (shown when selecting or changing target) */}
+            {(showTargetSelector || !owner || !repositoryName) && (
+              <ReviewTargetForm
+                installations={installations}
+                loadingInstallations={loadingInstallations}
+                selectedInstallationId={selectedInstallationId}
+                onSelectInstallation={handleSelectInstallation}
+                repositories={repositories}
+                loadingRepositories={loadingRepositories}
+                selectedRepository={selectedRepoFullName}
+                onSelectRepository={handleSelectRepository}
+                owner={owner}
+                onChangeOwner={(val) => {
+                  setOwner(val);
+                  setFormErrors((prev) => ({ ...prev, owner: null }));
+                }}
+                repositoryName={repositoryName}
+                onChangeRepositoryName={(val) => {
+                  setRepositoryName(val);
+                  setFormErrors((prev) => ({ ...prev, repository: null }));
+                }}
+                manualInstallationId={manualInstallationId}
+                onChangeManualInstallationId={(val) => {
+                  setManualInstallationId(val);
+                  setFormErrors((prev) => ({ ...prev, installationId: null }));
+                }}
+                isManualMode={isManualMode}
+                onToggleManualMode={handleToggleManualMode}
+                errors={formErrors}
+                disabled={submitting}
+              />
+            )}
+
+            {/* Pull Request & Commit SHA Inputs */}
+            <PullRequestInput
+              pullRequestNumber={pullRequestNumber}
+              onChangePullRequestNumber={(val) => {
+                setPullRequestNumber(val);
+                setFormErrors((prev) => ({ ...prev, pullRequestNumber: null }));
+              }}
+              commitSha={commitSha}
+              onChangeCommitSha={(val) => {
+                setCommitSha(val);
+                setFormErrors((prev) => ({ ...prev, commitSha: null }));
+              }}
+              errors={formErrors}
+              disabled={submitting}
+            />
+          </div>
+
+          {/* Side Summary & Submission Column */}
+          <div className="submit-side-col">
+            <SubmissionSummary
+              owner={owner}
+              repository={repositoryName}
+              pullRequestNumber={pullRequestNumber}
+              installationId={effectiveInstallationId}
+              installationAccount={installationAccount}
+              commitSha={commitSha}
+            />
+
+            <SubmissionActions
+              submitting={submitting}
+              disabled={submitting}
+              onCancelPath={cancelPath}
+            />
+          </div>
+        </div>
+      </form>
     </div>
   );
 };
