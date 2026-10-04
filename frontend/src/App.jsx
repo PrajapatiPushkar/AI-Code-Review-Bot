@@ -13,7 +13,7 @@ import ReviewDetailsPage from './pages/ReviewDetailsPage';
 import ReviewFindingsPage from './pages/ReviewFindingsPage';
 import RepositoriesPage from './pages/RepositoriesPage';
 import FindingsExplorerPlaceholderPage from './pages/FindingsExplorerPlaceholderPage';
-import SettingsPlaceholderPage from './pages/SettingsPlaceholderPage';
+import SettingsPage from './pages/SettingsPage';
 
 function App() {
   return (
@@ -40,7 +40,7 @@ function App() {
               <Route path="/reviews/:id" element={<ReviewDetailsPage />} />
               <Route path="/reviews/:id/findings" element={<ReviewFindingsPage />} />
               <Route path="/findings" element={<FindingsExplorerPlaceholderPage />} />
-              <Route path="/settings" element={<SettingsPlaceholderPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
 
             {/* Default Redirects */}
