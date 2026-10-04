@@ -10,18 +10,26 @@ public class ReviewFinding {
     private ReviewFindingCategory category;
     private String message;
     private String suggestion;
+    private FindingSource source = FindingSource.AI;
 
     public ReviewFinding() {
     }
 
     public ReviewFinding(String filename, Integer line, ReviewFindingSeverity severity,
                          ReviewFindingCategory category, String message, String suggestion) {
+        this(filename, line, severity, category, message, suggestion, FindingSource.AI);
+    }
+
+    public ReviewFinding(String filename, Integer line, ReviewFindingSeverity severity,
+                         ReviewFindingCategory category, String message, String suggestion,
+                         FindingSource source) {
         this.filename = filename;
         this.line = line;
         this.severity = severity;
         this.category = category;
         this.message = message;
         this.suggestion = suggestion;
+        this.source = source != null ? source : FindingSource.AI;
     }
 
     public String getFilename() {
@@ -70,6 +78,14 @@ public class ReviewFinding {
 
     public void setSuggestion(String suggestion) {
         this.suggestion = suggestion;
+    }
+
+    public FindingSource getSource() {
+        return source;
+    }
+
+    public void setSource(FindingSource source) {
+        this.source = source != null ? source : FindingSource.AI;
     }
 
     @Override

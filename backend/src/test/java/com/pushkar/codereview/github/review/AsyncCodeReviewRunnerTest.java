@@ -86,6 +86,46 @@ class AsyncCodeReviewRunnerTest {
         assertThat(persistenceService.getLastEntity().getReviewSummary()).contains("FAILED: GitHub PR not found");
     }
 
+    @Test
+    void testExecuteReviewAsync_HybridReview_MergesDeterministicAndAiFindings() {
+        com.pushkar.codereview.github.review.rule.RuleRegistry registry =
+                new com.pushkar.codereview.github.review.rule.RuleRegistry(List.of(
+                        new com.pushkar.codereview.github.review.rule.impl.SystemOutPrintlnRule()
+                ));
+        com.pushkar.codereview.github.review.rule.DeterministicRuleEngine ruleEngine =
+                new com.pushkar.codereview.github.review.rule.DeterministicRuleEngine(registry);
+        com.pushkar.codereview.github.review.rule.ReviewFindingMerger merger =
+                new com.pushkar.codereview.github.review.rule.ReviewFindingMerger();
+
+        AsyncCodeReviewRunner hybridRunner = new AsyncCodeReviewRunner(
+                pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null, ruleEngine, merger
+        );
+
+        ReviewFileInput fileWithSystemOut = new ReviewFileInput(
+                "App.java", "modified", 1, 0, 1,
+                "@@ -0,0 +1 @@\n+System.out.println(\"hybrid test\");",
+                null
+        );
+        ReviewInput hybridInput = new ReviewInput(
+                100L, "hello-world", "octocat/hello-world", "https://github.com/octocat/hello-world", "main",
+                200L, 42L, "PR Title", "PR Body", "open",
+                "https://github.com/octocat/hello-world/pull/42", "octocat", "sha999", "main",
+                Instant.now(), Instant.now(), List.of(fileWithSystemOut)
+        );
+
+        ReviewFinding aiFinding = new ReviewFinding("Other.java", 5, ReviewFindingSeverity.HIGH, ReviewFindingCategory.SECURITY, "AI security issue", "Fix it");
+        ReviewResult aiResult = new ReviewResult("AI Summary", List.of(aiFinding));
+
+        pullRequestReviewService.setReviewInput(hybridInput);
+        aiReviewService.setReviewResult(aiResult);
+
+        hybridRunner.executeReviewAsync(100L, 12345L, "octocat", "hello-world", 42L);
+
+        assertThat(persistenceService.isMarkedCompleted()).isTrue();
+        // Should have 1 AI finding + 1 deterministic rule finding = 2 total
+        assertThat(persistenceService.getSavedFindingsCount()).isEqualTo(2);
+    }
+
     // --- Helper Stubs ---
 
     private static class StubPullRequestReviewService extends GithubPullRequestReviewService {

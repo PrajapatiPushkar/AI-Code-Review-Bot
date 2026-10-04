@@ -26,12 +26,22 @@ public class AsyncCodeReviewRunner {
     private final GithubReviewCommentService reviewCommentService;
     private final CodeReviewPersistenceService persistenceService;
     private final CodeReviewMetrics codeReviewMetrics;
+    private final com.pushkar.codereview.github.review.rule.DeterministicRuleEngine deterministicRuleEngine;
+    private final com.pushkar.codereview.github.review.rule.ReviewFindingMerger findingMerger;
 
     public AsyncCodeReviewRunner(GithubPullRequestReviewService pullRequestReviewService,
                                   AiReviewService aiReviewService,
                                   GithubReviewCommentService reviewCommentService,
                                   CodeReviewPersistenceService persistenceService) {
-        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null);
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null, null, null);
+    }
+
+    public AsyncCodeReviewRunner(GithubPullRequestReviewService pullRequestReviewService,
+                                  AiReviewService aiReviewService,
+                                  GithubReviewCommentService reviewCommentService,
+                                  CodeReviewPersistenceService persistenceService,
+                                  CodeReviewMetrics codeReviewMetrics) {
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, codeReviewMetrics, null, null);
     }
 
     @Autowired
@@ -39,12 +49,16 @@ public class AsyncCodeReviewRunner {
                                   AiReviewService aiReviewService,
                                   GithubReviewCommentService reviewCommentService,
                                   CodeReviewPersistenceService persistenceService,
-                                  @Autowired(required = false) CodeReviewMetrics codeReviewMetrics) {
+                                  @Autowired(required = false) CodeReviewMetrics codeReviewMetrics,
+                                  @Autowired(required = false) com.pushkar.codereview.github.review.rule.DeterministicRuleEngine deterministicRuleEngine,
+                                  @Autowired(required = false) com.pushkar.codereview.github.review.rule.ReviewFindingMerger findingMerger) {
         this.pullRequestReviewService = pullRequestReviewService;
         this.aiReviewService = aiReviewService;
         this.reviewCommentService = reviewCommentService;
         this.persistenceService = persistenceService;
         this.codeReviewMetrics = codeReviewMetrics;
+        this.deterministicRuleEngine = deterministicRuleEngine;
+        this.findingMerger = findingMerger != null ? findingMerger : new com.pushkar.codereview.github.review.rule.ReviewFindingMerger();
     }
 
     @Async("taskExecutor")
@@ -72,7 +86,7 @@ public class AsyncCodeReviewRunner {
 
         try {
             ReviewInput reviewInput = pullRequestReviewService.getReviewInput(installationId, owner, repository, pullRequestNumber);
-            ReviewResult reviewResult = aiReviewService.review(reviewInput);
+            ReviewResult aiReviewResult = aiReviewService.review(reviewInput);
 
             String commitId = null;
             if (persistenceService != null && reviewId != null) {
@@ -84,6 +98,21 @@ public class AsyncCodeReviewRunner {
                 commitId = (reviewInput != null && reviewInput.getHeadBranch() != null && !reviewInput.getHeadBranch().isBlank())
                         ? reviewInput.getHeadBranch()
                         : "HEAD";
+            }
+
+            // Hybrid pipeline: evaluate deterministic rules and merge with AI findings
+            ReviewResult reviewResult = aiReviewResult;
+            if (deterministicRuleEngine != null && reviewInput != null) {
+                try {
+                    com.pushkar.codereview.github.review.rule.ReviewAnalysisContext analysisContext =
+                            com.pushkar.codereview.github.review.rule.ReviewAnalysisContext.fromReviewInput(reviewInput, commitId);
+                    List<com.pushkar.codereview.github.review.rule.RuleFinding> ruleFindings =
+                            deterministicRuleEngine.evaluate(analysisContext);
+                    reviewResult = findingMerger.merge(aiReviewResult, ruleFindings);
+                } catch (Exception ruleEx) {
+                    log.warn("Deterministic rule evaluation failed for reviewId={}, falling back to AI findings: {}",
+                            reviewId, ruleEx.getMessage(), ruleEx);
+                }
             }
 
             List<GithubReviewCommentResponse> postedComments = reviewCommentService.postReviewComments(
