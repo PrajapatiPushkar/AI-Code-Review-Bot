@@ -24,7 +24,17 @@ export const ReviewMetrics = ({ review, formatDuration }) => {
         </div>
         <div className="review-metric-value">{review.totalFindings || 0}</div>
         <p className="review-metric-desc">
-          {hasFindings ? 'Code issues & suggestions identified' : 'No critical issues flagged'}
+          {hasFindings && review.findings && review.findings.length > 0 ? (
+            (() => {
+              const ruleCount = review.findings.filter((f) => (f.source || '').toUpperCase() === 'RULE').length;
+              const aiCount = review.findings.length - ruleCount;
+              return `${aiCount} AI • ${ruleCount} Rule findings`;
+            })()
+          ) : hasFindings ? (
+            'Code issues & suggestions identified'
+          ) : (
+            'No critical issues flagged'
+          )}
         </p>
       </div>
 

@@ -14,12 +14,15 @@ export const FindingFilters = ({
   onSeverityChange,
   selectedCategory = 'ALL',
   onCategoryChange,
+  selectedSource = 'ALL',
+  onSourceChange,
   searchQuery = '',
   onSearchChange,
   viewMode = 'flat',
   onViewModeChange,
   onReset,
   stats = { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+  sourceStats = { total: 0, ai: 0, rule: 0 },
   categoriesPresent = [],
   categoryCounts = {},
   hasActiveFilters = false
@@ -88,6 +91,23 @@ export const FindingFilters = ({
               </button>
             )}
           </div>
+        </div>
+
+        {/* Source Filter Select */}
+        <div className="finding-source-field">
+          <label htmlFor="finding-source-select" className="form-label">
+            Source
+          </label>
+          <select
+            id="finding-source-select"
+            className="form-select finding-source-select"
+            value={selectedSource}
+            onChange={(e) => onSourceChange(e.target.value)}
+          >
+            <option value="ALL">All Sources ({sourceStats.total})</option>
+            <option value="AI">AI Review ({sourceStats.ai})</option>
+            <option value="RULE">Deterministic Rule ({sourceStats.rule})</option>
+          </select>
         </div>
 
         {/* Category Filter Select */}
@@ -215,6 +235,20 @@ export const FindingFilters = ({
                   className="active-chip-remove"
                   onClick={() => onSeverityChange('ALL')}
                   aria-label="Remove severity filter"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+
+            {selectedSource !== 'ALL' && (
+              <span className="active-chip">
+                <span>Source: <strong>{selectedSource === 'RULE' ? 'Deterministic Rule' : 'AI'}</strong></span>
+                <button
+                  type="button"
+                  className="active-chip-remove"
+                  onClick={() => onSourceChange('ALL')}
+                  aria-label="Remove source filter"
                 >
                   ×
                 </button>

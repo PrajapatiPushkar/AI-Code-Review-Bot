@@ -16,6 +16,7 @@ const ReviewFindingsPage = () => {
   const [review, setReview] = useState(null);
   const [selectedSeverity, setSelectedSeverity] = useState('ALL');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [selectedSource, setSelectedSource] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('flat'); // 'flat' | 'grouped'
 
@@ -57,8 +58,8 @@ const ReviewFindingsPage = () => {
     fetchFindings();
   }, [id]);
 
-  // Compute severity statistics and category counts
-  const { stats, categoriesPresent, categoryCounts } = useMemo(() => {
+  // Compute severity statistics, source provenance counts, and category counts
+  const { stats, sourceStats, categoriesPresent, categoryCounts } = useMemo(() => {
     const s = {
       total: allFindings.length,
       critical: 0,
@@ -66,6 +67,12 @@ const ReviewFindingsPage = () => {
       medium: 0,
       low: 0,
       info: 0
+    };
+
+    const src = {
+      total: allFindings.length,
+      ai: 0,
+      rule: 0
     };
 
     const catCounts = {};
@@ -78,6 +85,13 @@ const ReviewFindingsPage = () => {
       else if (sev === 'LOW') s.low++;
       else if (sev === 'INFO') s.info++;
 
+      const isRule = (item.source || '').toUpperCase() === 'RULE';
+      if (isRule) {
+        src.rule++;
+      } else {
+        src.ai++;
+      }
+
       if (item.category) {
         const cat = item.category.toUpperCase();
         catCounts[cat] = (catCounts[cat] || 0) + 1;
@@ -86,6 +100,7 @@ const ReviewFindingsPage = () => {
 
     return {
       stats: s,
+      sourceStats: src,
       categoriesPresent: Object.keys(catCounts).sort(),
       categoryCounts: catCounts
     };
@@ -94,6 +109,13 @@ const ReviewFindingsPage = () => {
   // Filter findings locally
   const filteredFindings = useMemo(() => {
     return allFindings.filter((item) => {
+      // Source filter
+      if (selectedSource !== 'ALL') {
+        const isRule = (item.source || '').toUpperCase() === 'RULE';
+        if (selectedSource === 'RULE' && !isRule) return false;
+        if (selectedSource === 'AI' && isRule) return false;
+      }
+
       // Severity filter
       if (selectedSeverity !== 'ALL') {
         const sev = (item.severity || 'INFO').toUpperCase();
@@ -116,7 +138,7 @@ const ReviewFindingsPage = () => {
 
       return true;
     });
-  }, [allFindings, selectedSeverity, selectedCategory, searchQuery]);
+  }, [allFindings, selectedSource, selectedSeverity, selectedCategory, searchQuery]);
 
   // Pagination calculation
   const totalPages = Math.ceil(filteredFindings.length / size) || 1;
@@ -138,6 +160,11 @@ const ReviewFindingsPage = () => {
     return groups;
   }, [paginatedFindings]);
 
+  const handleSourceChange = (src) => {
+    setSelectedSource(src);
+    setPage(0);
+  };
+
   const handleSeverityChange = (sev) => {
     setSelectedSeverity(sev);
     setPage(0);
@@ -156,6 +183,7 @@ const ReviewFindingsPage = () => {
   const handleResetFilters = () => {
     setSelectedSeverity('ALL');
     setSelectedCategory('ALL');
+    setSelectedSource('ALL');
     setSearchQuery('');
     setPage(0);
   };
@@ -163,6 +191,7 @@ const ReviewFindingsPage = () => {
   const hasActiveFilters =
     selectedSeverity !== 'ALL' ||
     selectedCategory !== 'ALL' ||
+    selectedSource !== 'ALL' ||
     searchQuery.trim() !== '';
 
   if (loading) {
@@ -221,11 +250,23 @@ const ReviewFindingsPage = () => {
 
       {error && <ErrorMessage message={error} onRetry={fetchFindings} />}
 
-      {/* Findings Statistics Bar */}
-      <div className="metrics-grid findings-metrics-grid" role="region" aria-label="Findings severity summary">
+      {/* Findings Provenance & Severity Statistics Bar */}
+      <div className="metrics-grid findings-metrics-grid" role="region" aria-label="Findings intelligence summary">
         <div className="metric-card finding-metric-card">
           <span className="metric-label">Total Findings</span>
           <span className="metric-value">{stats.total}</span>
+        </div>
+        <div className="metric-card finding-metric-card">
+          <span className="metric-label">AI Findings</span>
+          <span className="metric-value" style={{ color: 'var(--primary-color)' }}>
+            {sourceStats.ai}
+          </span>
+        </div>
+        <div className="metric-card finding-metric-card">
+          <span className="metric-label">Rule Findings</span>
+          <span className="metric-value" style={{ color: 'var(--status-in-progress)' }}>
+            {sourceStats.rule}
+          </span>
         </div>
         <div className="metric-card finding-metric-card">
           <span className="metric-label">Critical</span>
@@ -234,15 +275,9 @@ const ReviewFindingsPage = () => {
           </span>
         </div>
         <div className="metric-card finding-metric-card">
-          <span className="metric-label">High</span>
+          <span className="metric-label">High / Med</span>
           <span className="metric-value" style={{ color: 'var(--severity-high)' }}>
-            {stats.high}
-          </span>
-        </div>
-        <div className="metric-card finding-metric-card">
-          <span className="metric-label">Medium</span>
-          <span className="metric-value" style={{ color: 'var(--severity-medium)' }}>
-            {stats.medium}
+            {stats.high + stats.medium}
           </span>
         </div>
         <div className="metric-card finding-metric-card">
@@ -253,8 +288,11 @@ const ReviewFindingsPage = () => {
         </div>
       </div>
 
-      {/* Severity, Category & Search Filters Bar */}
+      {/* Source, Severity, Category & Search Filters Bar */}
       <FindingFilters
+        selectedSource={selectedSource}
+        onSourceChange={handleSourceChange}
+        sourceStats={sourceStats}
         selectedSeverity={selectedSeverity}
         onSeverityChange={handleSeverityChange}
         selectedCategory={selectedCategory}
@@ -276,7 +314,7 @@ const ReviewFindingsPage = () => {
           title={hasActiveFilters ? "No matching findings" : "No findings detected"}
           message={
             hasActiveFilters
-              ? "No code findings match your selected severity, category, or search filters."
+              ? "No code findings match your selected source, severity, category, or search filters."
               : "This automated pull request review produced zero findings or suggestions."
           }
           icon={

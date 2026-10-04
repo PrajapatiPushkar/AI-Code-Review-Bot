@@ -5055,3 +5055,418 @@ a:hover {
     gap: 0.25rem;
   }
 }
+
+/* ==========================================================================
+   Review Intelligence & Hybrid Review Foundation (V2 Commit 12)
+   ========================================================================== */
+
+/* Finding Source Badges */
+.finding-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.finding-source-icon {
+  flex-shrink: 0;
+}
+
+.finding-source-ai {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+[data-theme="light"] .finding-source-ai {
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.finding-source-rule {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+[data-theme="light"] .finding-source-rule {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.finding-source-rule-id {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.2);
+  margin-left: 0.25rem;
+}
+
+/* Finding Rule Identity Pill */
+.finding-rule-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+}
+
+.finding-rule-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.finding-rule-code {
+  font-family: var(--font-mono);
+  color: var(--text-code);
+  font-weight: 600;
+}
+
+/* Findings Filter Source Dropdown */
+.finding-source-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 140px;
+}
+
+.finding-source-select {
+  height: 38px;
+  font-size: 0.8125rem;
+}
+
+/* Review Intelligence Container Card */
+.review-intelligence-card {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.review-intelligence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  gap: 1rem;
+}
+
+.review-intelligence-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.review-intelligence-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: var(--primary-light);
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.review-hybrid-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  font-size: 0.6875rem;
+  padding: 0.25rem 0.625rem;
+}
+
+.review-intelligence-body {
+  padding: 1.5rem;
+}
+
+.review-intelligence-in-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius);
+}
+
+/* Top 3-Stat Provenance Grid */
+.review-provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.review-provenance-card {
+  padding: 1.25rem;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+}
+
+.provenance-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.provenance-card-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.provenance-pill {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.45rem;
+  font-weight: 600;
+}
+
+.provenance-card-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0.35rem 0 0.25rem 0;
+  color: var(--text-primary);
+}
+
+.provenance-card-desc {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.provenance-card-ai .provenance-card-value {
+  color: var(--primary-color);
+}
+
+.provenance-card-rule .provenance-card-value {
+  color: var(--status-completed);
+}
+
+/* Triggered Deterministic Rules Section */
+.review-triggered-rules-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-page);
+  border-radius: var(--radius);
+  border: 1px dashed var(--border-color);
+}
+
+.triggered-rules-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.triggered-rules-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.triggered-rule-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.triggered-rule-chip code {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-code);
+}
+
+.triggered-rule-count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Side-by-side Distributions Grid */
+.review-intelligence-distributions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Breakdown Cards */
+.severity-breakdown-card,
+.category-breakdown-card {
+  padding: 1.25rem;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+}
+
+.severity-breakdown-header,
+.category-breakdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.severity-breakdown-title,
+.category-breakdown-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.severity-breakdown-total,
+.category-breakdown-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Severity Multi-segment Bar */
+.severity-multi-bar {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--border-color);
+  margin-bottom: 1.25rem;
+}
+
+.severity-bar-segment {
+  height: 100%;
+  transition: width var(--transition-normal);
+}
+
+.severity-empty-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--border-color);
+  margin-bottom: 1.25rem;
+}
+
+/* Breakdown Rows & Progress Tracks */
+.severity-breakdown-list,
+.category-breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.severity-breakdown-row,
+.category-breakdown-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 65px;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.severity-row-badge-wrap,
+.category-row-badge-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.severity-row-bar-track,
+.category-row-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.severity-row-bar-fill,
+.category-row-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width var(--transition-normal);
+}
+
+.category-row-bar-fill {
+  background: var(--primary-color);
+}
+
+.severity-row-counts,
+.category-row-counts {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.severity-row-number,
+.category-row-number {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.severity-row-percent,
+.category-row-percent {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Mobile & Tablet Responsiveness */
+@media (max-width: 768px) {
+  .review-intelligence-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .review-intelligence-distributions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .severity-breakdown-row,
+  .category-breakdown-row {
+    grid-template-columns: 110px 1fr 50px;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .review-provenance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .severity-breakdown-row,
+  .category-breakdown-row {
+    grid-template-columns: 95px 1fr 45px;
+  }
+}

@@ -260,6 +260,21 @@ public class CodeReviewHistoryService {
         if (finding == null) {
             return null;
         }
+        String source = "AI";
+        String ruleId = null;
+        if (finding.getMessage() != null) {
+            String msg = finding.getMessage();
+            if (msg.contains("System.out/err")) {
+                source = "RULE";
+                ruleId = "RULE-JAVA-SYSTEM-OUT";
+            } else if (msg.contains("Empty catch block detected")) {
+                source = "RULE";
+                ruleId = "RULE-JAVA-EMPTY-CATCH";
+            } else if (msg.contains("Unresolved TODO/FIXME marker")) {
+                source = "RULE";
+                ruleId = "RULE-TODO-FIXME";
+            }
+        }
         return new CodeReviewFindingResponse(
                 finding.getId(),
                 finding.getFilePath(),
@@ -269,7 +284,9 @@ public class CodeReviewHistoryService {
                 finding.getCategory() != null ? finding.getCategory().name() : null,
                 finding.getMessage(),
                 finding.getSuggestion(),
-                finding.getCreatedAt()
+                finding.getCreatedAt(),
+                source,
+                ruleId
         );
     }
 }

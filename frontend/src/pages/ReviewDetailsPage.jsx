@@ -8,6 +8,7 @@ import ReviewMetadata from '../components/review-detail/ReviewMetadata';
 import ReviewSummary from '../components/review-detail/ReviewSummary';
 import ReviewActions from '../components/review-detail/ReviewActions';
 import ReviewDetailsSkeleton from '../components/review-detail/ReviewDetailsSkeleton';
+import ReviewIntelligenceSummary from '../components/review-intelligence/ReviewIntelligenceSummary';
 
 const ReviewDetailsPage = () => {
   const { id } = useParams();
@@ -25,7 +26,20 @@ const ReviewDetailsPage = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await reviewService.getReviewById(id);
+      let data = await reviewService.getReviewById(id);
+      if (data.status === 'COMPLETED') {
+        try {
+          const resultData = await reviewService.getReviewResult(id);
+          data = {
+            ...data,
+            ...resultData,
+            id: data.id || resultData.codeReviewId || id,
+            status: 'COMPLETED'
+          };
+        } catch {
+          // Fallback to base review if result endpoint encounters issue
+        }
+      }
       setReview(data);
       if (data.status === 'IN_PROGRESS') {
         setIsPolling(true);
@@ -46,6 +60,32 @@ const ReviewDetailsPage = () => {
       }
     };
   }, [id]);
+
+  // Ensure findings are loaded for completed reviews
+  useEffect(() => {
+    if (
+      review &&
+      review.status === 'COMPLETED' &&
+      (!review.findings || review.findings.length === 0) &&
+      (review.totalFindings || 0) > 0
+    ) {
+      let active = true;
+      reviewService
+        .getReviewFindings(id, { page: 0, size: 200 })
+        .then((data) => {
+          if (active && data?.content) {
+            setReview((prev) => ({
+              ...prev,
+              findings: data.content
+            }));
+          }
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }
+  }, [id, review?.status, review?.totalFindings]);
 
   // Polling logic when status is IN_PROGRESS
   useEffect(() => {
@@ -191,6 +231,12 @@ const ReviewDetailsPage = () => {
           />
         </div>
       </div>
+
+      {/* Review Intelligence: Provenance, Severity & Category Breakdowns */}
+      <ReviewIntelligenceSummary
+        findings={review.findings || []}
+        isInProgress={isInProgress}
+      />
     </div>
   );
 };

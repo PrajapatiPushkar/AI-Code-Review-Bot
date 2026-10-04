@@ -14,6 +14,8 @@ public class CodeReviewFindingResponse {
     private String message;
     private String suggestion;
     private Instant createdAt;
+    private String source = "AI";
+    private String ruleId;
 
     public CodeReviewFindingResponse() {
     }
@@ -21,6 +23,12 @@ public class CodeReviewFindingResponse {
     public CodeReviewFindingResponse(Long id, String filePath, Integer lineNumber, Integer endLineNumber,
                                      String severity, String category, String message, String suggestion,
                                      Instant createdAt) {
+        this(id, filePath, lineNumber, endLineNumber, severity, category, message, suggestion, createdAt, "AI", null);
+    }
+
+    public CodeReviewFindingResponse(Long id, String filePath, Integer lineNumber, Integer endLineNumber,
+                                     String severity, String category, String message, String suggestion,
+                                     Instant createdAt, String source, String ruleId) {
         this.id = id;
         this.filePath = filePath;
         this.lineNumber = lineNumber;
@@ -30,6 +38,8 @@ public class CodeReviewFindingResponse {
         this.message = message;
         this.suggestion = suggestion;
         this.createdAt = createdAt;
+        this.source = source != null ? source : "AI";
+        this.ruleId = ruleId;
     }
 
     public Long getId() {
@@ -104,6 +114,22 @@ public class CodeReviewFindingResponse {
         this.createdAt = createdAt;
     }
 
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source != null ? source : "AI";
+    }
+
+    public String getRuleId() {
+        return ruleId;
+    }
+
+    public void setRuleId(String ruleId) {
+        this.ruleId = ruleId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -117,11 +143,13 @@ public class CodeReviewFindingResponse {
                 Objects.equals(category, that.category) &&
                 Objects.equals(message, that.message) &&
                 Objects.equals(suggestion, that.suggestion) &&
-                Objects.equals(createdAt, that.createdAt);
+                Objects.equals(createdAt, that.createdAt) &&
+                Objects.equals(source, that.source) &&
+                Objects.equals(ruleId, that.ruleId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, filePath, lineNumber, endLineNumber, severity, category, message, suggestion, createdAt);
+        return Objects.hash(id, filePath, lineNumber, endLineNumber, severity, category, message, suggestion, createdAt, source, ruleId);
     }
 }

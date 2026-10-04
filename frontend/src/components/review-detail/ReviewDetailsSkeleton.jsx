@@ -76,6 +76,52 @@ export const ReviewDetailsSkeleton = () => {
           </div>
         </div>
       </div>
+
+      {/* Review Intelligence Card Skeleton */}
+      <div className="card review-intelligence-card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <LoadingSkeleton variant="circular" width="22px" height="22px" />
+            <LoadingSkeleton variant="text" width="180px" height="1.25rem" style={{ marginBottom: 0 }} />
+          </div>
+          <LoadingSkeleton variant="rectangular" width="100px" height="24px" borderRadius="var(--radius)" style={{ marginBottom: 0 }} />
+        </div>
+
+        {/* 3 Metric Cards Skeleton */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          {Array.from({ length: 3 }).map((_, mIdx) => (
+            <div key={mIdx} style={{ padding: '1rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)' }}>
+              <LoadingSkeleton variant="text" width="90px" height="12px" style={{ marginBottom: '0.5rem' }} />
+              <LoadingSkeleton variant="text" width="50px" height="1.75rem" style={{ marginBottom: '0.25rem' }} />
+              <LoadingSkeleton variant="text" width="120px" height="12px" style={{ marginBottom: 0 }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Severity & Category Distributions Skeleton */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+          <div style={{ padding: '1rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)' }}>
+            <LoadingSkeleton variant="text" width="140px" height="1rem" style={{ marginBottom: '1rem' }} />
+            <LoadingSkeleton variant="rectangular" width="100%" height="8px" borderRadius="9999px" style={{ marginBottom: '1rem' }} />
+            {Array.from({ length: 5 }).map((_, rIdx) => (
+              <div key={rIdx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <LoadingSkeleton variant="rectangular" width="70px" height="20px" borderRadius="9999px" />
+                <LoadingSkeleton variant="text" width="50px" height="14px" />
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: '1rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)' }}>
+            <LoadingSkeleton variant="text" width="140px" height="1rem" style={{ marginBottom: '1rem' }} />
+            {Array.from({ length: 5 }).map((_, rIdx) => (
+              <div key={rIdx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <LoadingSkeleton variant="rectangular" width="90px" height="20px" borderRadius="9999px" />
+                <LoadingSkeleton variant="text" width="50px" height="14px" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

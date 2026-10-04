@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import SeverityBadge from './SeverityBadge';
 import CategoryBadge from './CategoryBadge';
 import FindingCodeBlock from './FindingCodeBlock';
+import FindingSourceBadge from '../review-intelligence/FindingSourceBadge';
 import useToast from '../../hooks/useToast';
 
 export const FindingCard = ({ finding }) => {
@@ -62,6 +63,14 @@ export const FindingCard = ({ finding }) => {
         <div className="finding-header-badges">
           <SeverityBadge severity={finding.severity} />
           {finding.category && <CategoryBadge category={finding.category} />}
+          <FindingSourceBadge source={finding.source} ruleId={finding.ruleId} />
+
+          {finding.ruleId && (
+            <div className="finding-rule-pill" title={`Deterministic Rule ID: ${finding.ruleId}`}>
+              <span className="finding-rule-label">Rule:</span>
+              <code className="finding-rule-code">{finding.ruleId}</code>
+            </div>
+          )}
 
           {finding.filePath && (
             <div className="finding-file-pill" title={`File: ${finding.filePath}`}>

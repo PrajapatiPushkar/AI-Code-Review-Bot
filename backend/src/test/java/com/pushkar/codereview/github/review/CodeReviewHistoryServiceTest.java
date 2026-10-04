@@ -142,6 +142,51 @@ class CodeReviewHistoryServiceTest {
     }
 
     @Test
+    void testGetFindingsByReviewId_MapsSourceAndRuleIdAccurately() {
+        CodeReview review = createSampleReview(1L, 123456L, "octocat", "hello-world", 42, CodeReviewStatus.COMPLETED);
+        review.setUser(user1);
+        repository.save(review);
+
+        CodeReviewFinding fAi = new CodeReviewFinding(review, "App.java", 10, 10, ReviewFindingSeverity.HIGH, ReviewFindingCategory.SECURITY, "AI security warning", "Fix SQLi");
+        fAi.setId(201L);
+        findingRepository.save(fAi);
+
+        CodeReviewFinding fRule1 = new CodeReviewFinding(review, "Main.java", 15, 15, ReviewFindingSeverity.LOW, ReviewFindingCategory.CODE_STYLE, "Avoid direct console output using System.out/err in production code.", "Use logger");
+        fRule1.setId(202L);
+        findingRepository.save(fRule1);
+
+        CodeReviewFinding fRule2 = new CodeReviewFinding(review, "Service.java", 30, 32, ReviewFindingSeverity.MEDIUM, ReviewFindingCategory.BUG, "Empty catch block detected. Swallowing exceptions without logging or rethrowing hides critical failures.", "Log exception");
+        fRule2.setId(203L);
+        findingRepository.save(fRule2);
+
+        CodeReviewFinding fRule3 = new CodeReviewFinding(review, "Handler.java", 45, 45, ReviewFindingSeverity.INFO, ReviewFindingCategory.MAINTAINABILITY, "Unresolved TODO/FIXME marker found in code change.", "Resolve marker");
+        fRule3.setId(204L);
+        findingRepository.save(fRule3);
+
+        currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
+
+        Page<CodeReviewFindingResponse> page = service.getFindingsByReviewId(1L, 0, 20, "lineNumber,asc");
+
+        assertThat(page.getContent()).hasSize(4);
+
+        CodeReviewFindingResponse rAi = page.getContent().stream().filter(f -> f.getId().equals(201L)).findFirst().orElseThrow();
+        assertThat(rAi.getSource()).isEqualTo("AI");
+        assertThat(rAi.getRuleId()).isNull();
+
+        CodeReviewFindingResponse rRule1 = page.getContent().stream().filter(f -> f.getId().equals(202L)).findFirst().orElseThrow();
+        assertThat(rRule1.getSource()).isEqualTo("RULE");
+        assertThat(rRule1.getRuleId()).isEqualTo("RULE-JAVA-SYSTEM-OUT");
+
+        CodeReviewFindingResponse rRule2 = page.getContent().stream().filter(f -> f.getId().equals(203L)).findFirst().orElseThrow();
+        assertThat(rRule2.getSource()).isEqualTo("RULE");
+        assertThat(rRule2.getRuleId()).isEqualTo("RULE-JAVA-EMPTY-CATCH");
+
+        CodeReviewFindingResponse rRule3 = page.getContent().stream().filter(f -> f.getId().equals(204L)).findFirst().orElseThrow();
+        assertThat(rRule3.getSource()).isEqualTo("RULE");
+        assertThat(rRule3.getRuleId()).isEqualTo("RULE-TODO-FIXME");
+    }
+
+    @Test
     void testGetFindingsByReviewId_NotFound_ThrowsResourceNotFoundException() {
         currentUserService.setContext(user1.getId(), "user1@example.com", "USER");
 
