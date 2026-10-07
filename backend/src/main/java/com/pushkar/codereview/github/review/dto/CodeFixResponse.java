@@ -5,6 +5,7 @@ import java.util.Objects;
 
 public class CodeFixResponse {
 
+    private Long proposalId;
     private Long findingId;
     private String filePath;
     private String explanation;
@@ -22,6 +23,14 @@ public class CodeFixResponse {
     public CodeFixResponse(Long findingId, String filePath, String explanation, String unifiedDiff,
                            String originalContent, String proposedContent, Instant generatedAt,
                            String provider, String status, String limitations) {
+        this(null, findingId, filePath, explanation, unifiedDiff, originalContent, proposedContent,
+                generatedAt, provider, status, limitations);
+    }
+
+    public CodeFixResponse(Long proposalId, Long findingId, String filePath, String explanation,
+                           String unifiedDiff, String originalContent, String proposedContent,
+                           Instant generatedAt, String provider, String status, String limitations) {
+        this.proposalId = proposalId;
         this.findingId = findingId;
         this.filePath = filePath;
         this.explanation = explanation;
@@ -32,6 +41,14 @@ public class CodeFixResponse {
         this.provider = provider != null ? provider : "Gemini";
         this.status = status != null ? status : "PROPOSED";
         this.limitations = limitations;
+    }
+
+    public Long getProposalId() {
+        return proposalId;
+    }
+
+    public void setProposalId(Long proposalId) {
+        this.proposalId = proposalId;
     }
 
     public Long getFindingId() {
@@ -119,13 +136,14 @@ public class CodeFixResponse {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         CodeFixResponse that = (CodeFixResponse) o;
-        return Objects.equals(findingId, that.findingId) &&
+        return Objects.equals(proposalId, that.proposalId) &&
+                Objects.equals(findingId, that.findingId) &&
                 Objects.equals(filePath, that.filePath) &&
                 Objects.equals(unifiedDiff, that.unifiedDiff);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(findingId, filePath, unifiedDiff);
+        return Objects.hash(proposalId, findingId, filePath, unifiedDiff);
     }
 }

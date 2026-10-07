@@ -17,6 +17,8 @@ export const FindingActions = ({
   onGenerateFix,
   isGeneratingFix = false,
   hasFix = false,
+  onToggleHistory,
+  isHistoryOpen = false,
   className = ''
 }) => {
   const { toast } = useToast();
@@ -166,6 +168,23 @@ export const FindingActions = ({
               <span>{hasFix ? 'Regenerate Fix' : 'Generate Fix'}</span>
             </>
           )}
+        </button>
+      )}
+
+      {/* View Fix History */}
+      {onToggleHistory && (
+        <button
+          type="button"
+          className={`btn btn-sm ${isHistoryOpen ? 'btn-secondary' : 'btn-outline'} finding-action-btn finding-action-history`}
+          onClick={onToggleHistory}
+          title="View previous AI fix proposals for this finding"
+          aria-label={isHistoryOpen ? 'Hide fix history' : 'View fix history'}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <span>Fix History</span>
         </button>
       )}
 

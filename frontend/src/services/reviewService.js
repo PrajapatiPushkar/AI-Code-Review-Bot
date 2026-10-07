@@ -34,6 +34,21 @@ export const reviewService = {
   async generateFindingFix(findingId, data = {}) {
     const response = await api.post(`/code-reviews/findings/${findingId}/fix`, data);
     return response.data;
+  },
+
+  async getFindingFixProposals(findingId) {
+    const response = await api.get(`/code-reviews/findings/${findingId}/fixes`);
+    return response.data;
+  },
+
+  async getFixProposal(proposalId) {
+    const response = await api.get(`/code-reviews/fixes/${proposalId}`);
+    return response.data;
+  },
+
+  async updateFixProposalStatus(proposalId, status) {
+    const response = await api.patch(`/code-reviews/fixes/${proposalId}/status`, { status });
+    return response.data;
   }
 };
 

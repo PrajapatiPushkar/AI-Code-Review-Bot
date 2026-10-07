@@ -20,6 +20,7 @@ export const FindingCard = ({
 
   // AI Fix Generation local state
   const [proposedFix, setProposedFix] = useState(null);
+  const [showFixPreview, setShowFixPreview] = useState(false);
   const [isGeneratingFix, setIsGeneratingFix] = useState(false);
   const [fixError, setFixError] = useState(null);
 
@@ -92,6 +93,7 @@ export const FindingCard = ({
     try {
       const fixResult = await reviewService.generateFindingFix(finding.id);
       setProposedFix(fixResult);
+      setShowFixPreview(true);
       if (toast && toast.success) {
         toast.success('AI-generated proposed patch is ready for review.', { title: 'Fix Generated' });
       }
@@ -162,7 +164,7 @@ export const FindingCard = ({
         <p className="finding-message">{finding.message}</p>
       </div>
 
-      {/* Primary Actions Bar (Expand toggle, Generate Fix, Copy Fix, Copy Location, GitHub Link) */}
+      {/* Primary Actions Bar (Expand toggle, Generate Fix, Fix History, Copy Fix, Copy Location, GitHub Link) */}
       <div className="finding-card-actions-row">
         <FindingActions
           finding={finding}
@@ -173,6 +175,11 @@ export const FindingCard = ({
           onGenerateFix={handleGenerateFix}
           isGeneratingFix={isGeneratingFix}
           hasFix={Boolean(proposedFix)}
+          onToggleHistory={() => {
+            setShowFixPreview(!showFixPreview);
+            setIsExpanded(true);
+          }}
+          isHistoryOpen={showFixPreview}
         />
       </div>
 
@@ -196,11 +203,14 @@ export const FindingCard = ({
       )}
 
       {/* AI Proposed Patch Preview Component */}
-      {proposedFix && (
+      {(showFixPreview || proposedFix) && (
         <CodeFixPreview
           fix={proposedFix}
           finding={finding}
-          onClose={() => setProposedFix(null)}
+          onClose={() => {
+            setShowFixPreview(false);
+            setProposedFix(null);
+          }}
           onRegenerate={handleGenerateFix}
           isRegenerating={isGeneratingFix}
         />
