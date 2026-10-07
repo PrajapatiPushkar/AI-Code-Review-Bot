@@ -136,6 +136,35 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(response);
     }
 
+    @ExceptionHandler(PatchValidationException.class)
+    public ResponseEntity<Map<String, Object>> handlePatchValidationException(PatchValidationException ex) {
+        Map<String, Object> response = Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", HttpStatus.BAD_REQUEST.value(),
+                "error", "Patch Validation Failed",
+                "message", ex.getMessage() != null ? ex.getMessage() : "Invalid proposed patch"
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(GeminiAiReviewException.class)
+    public ResponseEntity<Map<String, Object>> handleGeminiAiReviewException(GeminiAiReviewException ex) {
+        HttpStatus status = ex.getStatusCode() != null && ex.getStatusCode() > 0 ? HttpStatus.resolve(ex.getStatusCode()) : null;
+        if (status == null) {
+            status = HttpStatus.BAD_GATEWAY;
+        }
+
+        Map<String, Object> response = Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", status.value(),
+                "error", "AI Provider Error",
+                "message", ex.getMessage() != null ? ex.getMessage() : "AI review provider failure"
+        );
+
+        return ResponseEntity.status(status).body(response);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneralException(Exception ex) {
         String correlationId = MDC.get("correlationId");

@@ -29,6 +29,11 @@ export const reviewService = {
   async getReviewFindings(id, params = {}) {
     const response = await api.get(`/code-reviews/${id}/findings`, { params });
     return response.data;
+  },
+
+  async generateFindingFix(findingId, data = {}) {
+    const response = await api.post(`/code-reviews/findings/${findingId}/fix`, data);
+    return response.data;
   }
 };
 

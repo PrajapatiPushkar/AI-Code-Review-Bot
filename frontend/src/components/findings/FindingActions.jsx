@@ -14,6 +14,9 @@ export const FindingActions = ({
   isExpanded = false,
   onToggleExpand,
   controlsId,
+  onGenerateFix,
+  isGeneratingFix = false,
+  hasFix = false,
   className = ''
 }) => {
   const { toast } = useToast();
@@ -120,6 +123,52 @@ export const FindingActions = ({
       role="toolbar"
       aria-label="Finding actions"
     >
+      {/* Generate Proposed AI Fix */}
+      {onGenerateFix && (
+        <button
+          type="button"
+          className="btn btn-sm btn-primary finding-action-btn finding-action-fix"
+          onClick={onGenerateFix}
+          disabled={isGeneratingFix || !hasFilePath}
+          title={!hasFilePath ? 'Fix generation requires available file path and context.' : (hasFix ? 'Regenerate proposed patch with AI' : 'Request AI-generated proposed code fix')}
+          aria-label={isGeneratingFix ? 'Generating proposed fix...' : (hasFix ? 'Regenerate proposed code fix with AI' : 'Generate proposed code fix with AI')}
+        >
+          {isGeneratingFix ? (
+            <>
+              <svg
+                className="finding-action-spinner"
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="12" y1="2" x2="12" y2="6" />
+                <line x1="12" y1="18" x2="12" y2="22" />
+                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+                <line x1="2" y1="12" x2="6" y2="12" />
+                <line x1="18" y1="12" x2="22" y2="12" />
+                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+              </svg>
+              <span>Generating proposed fix...</span>
+            </>
+          ) : (
+            <>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+              <span>{hasFix ? 'Regenerate Fix' : 'Generate Fix'}</span>
+            </>
+          )}
+        </button>
+      )}
+
       {/* Toggle Details Action */}
       {onToggleExpand && (
         <button
