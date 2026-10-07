@@ -1,17 +1,26 @@
 import React, { useState } from 'react';
 import SeverityBadge from './SeverityBadge';
 import CategoryBadge from './CategoryBadge';
-import FindingCodeBlock from './FindingCodeBlock';
 import FindingSourceBadge from '../review-intelligence/FindingSourceBadge';
+import FindingSuggestion from './FindingSuggestion';
+import FindingCodeContext from './FindingCodeContext';
+import FindingActions from './FindingActions';
 import useToast from '../../hooks/useToast';
 
-export const FindingCard = ({ finding }) => {
+export const FindingCard = ({
+  finding,
+  repoMetadata = null,
+  defaultExpanded = false
+}) => {
   const { toast } = useToast();
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [copiedPath, setCopiedPath] = useState(false);
 
   if (!finding) return null;
 
   const severity = (finding.severity || 'INFO').toUpperCase();
+  const isRule = (finding.source || '').toUpperCase() === 'RULE';
+  const detailsId = `finding-details-${finding.id || Math.random().toString(36).substring(2, 9)}`;
 
   const getLineDisplay = () => {
     if (finding.lineNumber && finding.endLineNumber && finding.endLineNumber > finding.lineNumber) {
@@ -39,23 +48,39 @@ export const FindingCard = ({ finding }) => {
     }
   };
 
-  const handleCopyPath = async () => {
+  const handleCopyPath = async (e) => {
+    e.stopPropagation();
     if (!finding.filePath) return;
     try {
-      await navigator.clipboard.writeText(finding.filePath);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(finding.filePath);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = finding.filePath;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!success) throw new Error('Copy command failed');
+      }
+
       setCopiedPath(true);
       if (toast && toast.success) {
         toast.success(`Copied path: ${finding.filePath}`, { title: 'Path Copied' });
       }
       setTimeout(() => setCopiedPath(false), 2000);
     } catch {
-      // Fallback
+      if (toast && toast.error) {
+        toast.error('Failed to copy file path to clipboard.', { title: 'Error' });
+      }
     }
   };
 
   return (
     <article
-      className={`card finding-card ${getSeverityBorderClass()}`}
+      className={`card finding-card ${getSeverityBorderClass()} ${isExpanded ? 'finding-card-expanded' : ''}`}
       aria-label={`Finding #${finding.id || 'N/A'}: ${severity} in ${finding.filePath || 'general'}`}
     >
       {/* Finding Card Top Header */}
@@ -103,19 +128,72 @@ export const FindingCard = ({ finding }) => {
         </div>
       </div>
 
-      {/* Finding Message / Description */}
+      {/* Finding Message / Description Summary */}
       <div className="finding-card-body">
         <p className="finding-message">{finding.message}</p>
       </div>
 
-      {/* Code Context / Suggested Fix Code Block */}
-      {finding.suggestion && (
-        <FindingCodeBlock
-          suggestion={finding.suggestion}
-          lineNumber={finding.lineNumber}
-          endLineNumber={finding.endLineNumber}
-          filePath={finding.filePath}
+      {/* Primary Actions Bar (Expand toggle, Copy Fix, Copy Location, GitHub Link) */}
+      <div className="finding-card-actions-row">
+        <FindingActions
+          finding={finding}
+          repoMetadata={repoMetadata}
+          isExpanded={isExpanded}
+          onToggleExpand={() => setIsExpanded(!isExpanded)}
+          controlsId={detailsId}
         />
+      </div>
+
+      {/* Expanded Finding Detail Section */}
+      {isExpanded && (
+        <div id={detailsId} className="finding-expanded-details" role="region" aria-label="Finding details">
+          {/* Why This Matters / Contextual Explanation */}
+          <section className="finding-detail-section finding-explanation-section" aria-labelledby={`${detailsId}-explanation`}>
+            <h4 id={`${detailsId}-explanation`} className="finding-detail-heading">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <span>Why this matters</span>
+            </h4>
+            <p className="finding-explanation-text">
+              {finding.message || 'No additional contextual explanation was provided.'}
+            </p>
+          </section>
+
+          {/* Code Location & Source Context */}
+          <section className="finding-detail-section" aria-labelledby={`${detailsId}-context`}>
+            <FindingCodeContext finding={finding} />
+          </section>
+
+          {/* Finding Provenance & Source */}
+          <section className="finding-detail-section finding-provenance-section" aria-labelledby={`${detailsId}-source`}>
+            <div className="finding-provenance-grid">
+              <div className="finding-provenance-item">
+                <span className="finding-provenance-label">Finding Source:</span>
+                <span className="finding-provenance-value">
+                  {isRule ? 'Deterministic Rule Engine' : 'AI Review (Gemini Contextual Reasoning)'}
+                </span>
+              </div>
+              {isRule && finding.ruleId && (
+                <div className="finding-provenance-item">
+                  <span className="finding-provenance-label">Rule Identifier:</span>
+                  <code className="finding-provenance-code">{finding.ruleId}</code>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Suggested Fix Section */}
+          <section className="finding-detail-section" aria-labelledby={`${detailsId}-fix`}>
+            <FindingSuggestion
+              suggestion={finding.suggestion}
+              lineNumber={finding.lineNumber}
+              endLineNumber={finding.endLineNumber}
+            />
+          </section>
+        </div>
       )}
     </article>
   );

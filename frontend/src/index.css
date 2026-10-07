@@ -3246,15 +3246,308 @@ a:hover {
   margin: 0;
 }
 
-/* Suggested Fix / Code Block */
-.finding-code-block-container {
+/* Finding Card Actions Row */
+.finding-card-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.finding-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.finding-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.3125rem 0.625rem;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  color: var(--text-primary);
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.finding-action-btn:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--primary-color);
+  color: var(--text-primary);
+}
+
+.finding-action-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.finding-action-toggle {
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+  border-color: rgba(99, 102, 241, 0.3);
+  font-weight: 600;
+}
+
+.finding-action-toggle:hover {
+  background-color: var(--primary-color);
+  color: #ffffff;
+  border-color: var(--primary-color);
+}
+
+.finding-action-chevron {
+  transition: transform var(--transition-fast);
+}
+
+.finding-action-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.finding-action-github {
+  text-decoration: none;
+}
+
+/* Expanded Finding Detail Sections */
+.finding-card-expanded {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-color-light);
+}
+
+.finding-expanded-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border-color);
+  animation: findingFadeIn 200ms ease-in-out;
+}
+
+@keyframes findingFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.finding-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.finding-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.finding-explanation-section {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 0.875rem 1rem;
+}
+
+.finding-explanation-text {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin: 0;
+  word-break: break-word;
+}
+
+/* Provenance Section */
+.finding-provenance-section {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.finding-provenance-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.finding-provenance-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.finding-provenance-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.finding-provenance-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.finding-provenance-code {
+  font-family: var(--font-mono, monospace);
+  color: var(--status-in-progress);
+  background-color: var(--status-in-progress-bg);
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+}
+
+/* Code Context Component (FindingCodeContext) */
+.finding-code-context-container {
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
   background-color: var(--bg-color);
   overflow: hidden;
 }
 
+.finding-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  background-color: var(--table-header-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.finding-context-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.finding-context-icon {
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.finding-context-heading {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.finding-location-copy-btn {
+  padding: 0.1875rem 0.5rem;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background-color: var(--bg-surface-elevated);
+}
+
+.finding-context-body {
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.finding-context-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.finding-context-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.finding-context-label {
+  color: var(--text-muted);
+  min-width: 3.5rem;
+  font-weight: 500;
+}
+
+.finding-context-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  word-break: break-all;
+}
+
+.finding-context-file {
+  color: var(--text-code);
+}
+
+.finding-context-lines {
+  color: var(--text-primary);
+}
+
+.finding-context-snippet-wrapper {
+  margin-top: 0.5rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+
+.finding-context-snippet {
+  margin: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.finding-context-unavailable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Suggested Fix / Code Block (FindingSuggestion & Legacy FindingCodeBlock) */
+.finding-suggestion-container,
+.finding-code-block-container {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background-color: var(--bg-color);
+  overflow: hidden;
+}
+
+.finding-suggestion-empty-state {
+  border-style: dashed;
+}
+
+.finding-suggestion-header,
 .finding-code-header {
   display: flex;
   align-items: center;
@@ -3264,17 +3557,20 @@ a:hover {
   border-bottom: 1px solid var(--border-color);
 }
 
+.finding-suggestion-title-group,
 .finding-code-title-group {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
+.finding-suggestion-icon,
 .finding-code-icon {
   color: var(--status-in-progress);
   flex-shrink: 0;
 }
 
+.finding-suggestion-heading,
 .finding-code-heading {
   font-size: 0.75rem;
   font-weight: 700;
@@ -3283,6 +3579,7 @@ a:hover {
   letter-spacing: 0.04em;
 }
 
+.finding-suggestion-target-badge,
 .finding-code-target-badge {
   font-size: 0.6875rem;
   font-family: var(--font-mono, monospace);
@@ -3292,19 +3589,23 @@ a:hover {
   border-radius: var(--radius-sm);
 }
 
+.finding-suggestion-copy-btn,
 .finding-copy-btn {
   padding: 0.1875rem 0.5rem;
   font-size: 0.75rem;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  background-color: var(--bg-surface-elevated);
 }
 
+.finding-suggestion-content-wrapper,
 .finding-code-wrapper {
   overflow-x: auto;
   padding: 0.875rem 1rem;
 }
 
+.finding-suggestion-content,
 .finding-code-content {
   margin: 0;
   font-family: var(--font-mono, monospace);
@@ -3313,6 +3614,17 @@ a:hover {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+}
+
+.finding-suggestion-empty {
+  padding: 1rem;
+}
+
+.finding-suggestion-empty-text {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* File Group Container */
@@ -3504,6 +3816,22 @@ a:hover {
 
   .finding-pagination .pagination-numbers {
     display: none;
+  }
+
+  .finding-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .finding-action-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .finding-provenance-grid {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 }
 

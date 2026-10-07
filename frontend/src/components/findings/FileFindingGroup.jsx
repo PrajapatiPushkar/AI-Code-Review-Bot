@@ -11,7 +11,12 @@ const SEVERITY_WEIGHT = {
   INFO: 1
 };
 
-export const FileFindingGroup = ({ filePath, findings = [], defaultExpanded = true }) => {
+export const FileFindingGroup = ({
+  filePath,
+  findings = [],
+  defaultExpanded = true,
+  repoMetadata = null
+}) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
@@ -28,24 +33,52 @@ export const FileFindingGroup = ({ filePath, findings = [], defaultExpanded = tr
     e.stopPropagation();
     if (!filePath) return;
     try {
-      await navigator.clipboard.writeText(filePath);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(filePath);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = filePath;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!success) throw new Error('Copy command failed');
+      }
+
       setCopied(true);
       if (toast && toast.success) {
         toast.success(`Copied path: ${filePath}`, { title: 'Path Copied' });
       }
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
+      if (toast && toast.error) {
+        toast.error('Failed to copy file path to clipboard.', { title: 'Error' });
+      }
+    }
+  };
+
+  const handleToggle = () => {
+    setIsExpanded((prev) => !prev);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleToggle();
     }
   };
 
   return (
     <div className="file-finding-group card">
-      {/* File Group Header */}
-      <button
-        type="button"
+      {/* File Group Header (Accessible collapsible header) */}
+      <div
         className="file-finding-group-header"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggle}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
         aria-expanded={isExpanded}
         aria-controls={`file-findings-${filePath}`}
       >
@@ -104,13 +137,17 @@ export const FileFindingGroup = ({ filePath, findings = [], defaultExpanded = tr
             {findings.length} {findings.length === 1 ? 'finding' : 'findings'}
           </span>
         </div>
-      </button>
+      </div>
 
       {/* Collapsible Findings Body */}
       {isExpanded && (
         <div id={`file-findings-${filePath}`} className="file-finding-group-body">
           {findings.map((finding) => (
-            <FindingCard key={finding.id} finding={finding} />
+            <FindingCard
+              key={finding.id}
+              finding={finding}
+              repoMetadata={repoMetadata}
+            />
           ))}
         </div>
       )}

@@ -201,6 +201,15 @@ const ReviewFindingsPage = () => {
   const repoName = review ? review.repository || review.repositoryName : null;
   const fullRepo = review ? (review.owner ? `${review.owner}/${repoName}` : repoName) : null;
 
+  const repoMetadata = useMemo(() => {
+    if (!review) return null;
+    return {
+      owner: review.owner,
+      repository: review.repository || review.repositoryName,
+      commitSha: review.commitSha || null
+    };
+  }, [review]);
+
   return (
     <div className="findings-page">
       {/* Breadcrumb Navigation */}
@@ -352,6 +361,7 @@ const ReviewFindingsPage = () => {
                   key={filePath}
                   filePath={filePath}
                   findings={fileFindings}
+                  repoMetadata={repoMetadata}
                 />
               ))}
             </div>
@@ -359,7 +369,11 @@ const ReviewFindingsPage = () => {
             /* Flat List View */
             <div className="findings-flat-container">
               {paginatedFindings.map((finding) => (
-                <FindingCard key={finding.id} finding={finding} />
+                <FindingCard
+                  key={finding.id}
+                  finding={finding}
+                  repoMetadata={repoMetadata}
+                />
               ))}
             </div>
           )}
