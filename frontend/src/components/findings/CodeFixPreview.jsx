@@ -1,13 +1,54 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import useToast from '../../hooks/useToast';
 import reviewService from '../../services/reviewService';
 import LoadingSkeleton from '../common/LoadingSkeleton';
 
 /**
- * CodeFixPreview displays an AI-generated patch proposal for a finding,
- * its persistent history, safe status lifecycle transitions, and patch inspection.
- *
- * Prominently communicates that fixes are NOT applied to GitHub automatically.
+ * Browser-safe download helper using Blob, URL.createObjectURL, and anchor element.
+ * Ensures the temporary object URL is revoked immediately after the download triggers.
+ */
+const triggerBlobDownload = (response, fallbackFilename) => {
+  const contentDisposition = response?.headers?.['content-disposition'] || response?.headers?.['Content-Disposition'];
+  let filename = fallbackFilename;
+  if (contentDisposition) {
+    const match = /filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i.exec(contentDisposition);
+    if (match && match[1]) {
+      filename = decodeURIComponent(match[1].trim());
+    }
+  }
+  const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
+};
+
+/**
+ * Extracts human-readable error messages from error responses,
+ * including Blob-wrapped JSON error responses from Axios.
+ */
+const parseBlobError = async (err, defaultMsg) => {
+  if (err?.response?.data instanceof Blob) {
+    try {
+      const text = await err.response.data.text();
+      const parsed = JSON.parse(text);
+      if (parsed.message) return parsed.message;
+    } catch {
+      // ignore JSON parse failures
+    }
+  }
+  return err?.response?.data?.message || err?.message || defaultMsg;
+};
+
+/**
+ * CodeFixPreview: Developer Review Workspace around persisted AI fix proposals.
+ * Provides side-by-side inspection, unified diff view, safe proposal status lifecycle,
+ * and direct export/download of patch files, proposed files, and original files.
  */
 export const CodeFixPreview = ({
   fix = null,
@@ -25,6 +66,10 @@ export const CodeFixPreview = ({
   const [historyError, setHistoryError] = useState(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [copiedPatch, setCopiedPatch] = useState(false);
+  const [copiedProposed, setCopiedProposed] = useState(false);
+  const [isDownloadingPatch, setIsDownloadingPatch] = useState(false);
+  const [isDownloadingProposed, setIsDownloadingProposed] = useState(false);
+  const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
   const [activeTab, setActiveTab] = useState('diff'); // 'diff' | 'original' | 'proposed'
 
   const findingId = finding?.id || fix?.findingId;
@@ -46,12 +91,15 @@ export const CodeFixPreview = ({
         setSelectedProposalId(list[0].id);
       }
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Failed to load fix history.';
+      const msg = err.response?.data?.message || err.message || 'Unable to load fix history.';
       setHistoryError(msg);
+      if (toast?.error) {
+        toast.error(msg, { title: 'Unable to load fix history.' });
+      }
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [findingId, fix?.proposalId, selectedProposalId]);
+  }, [findingId, fix?.proposalId, selectedProposalId, toast]);
 
   useEffect(() => {
     loadProposals();
@@ -61,7 +109,6 @@ export const CodeFixPreview = ({
   useEffect(() => {
     if (fix?.proposalId) {
       setSelectedProposalId(fix.proposalId);
-      // Prepend or refresh proposal in list if not present
       setProposals((prev) => {
         const exists = prev.some((p) => p.id === fix.proposalId);
         if (!exists) {
@@ -88,7 +135,7 @@ export const CodeFixPreview = ({
   }, [fix]);
 
   // Resolve currently active proposal to inspect
-  const activeProposal = React.useMemo(() => {
+  const activeProposal = useMemo(() => {
     if (selectedProposalId && proposals.length > 0) {
       const found = proposals.find((p) => p.id === selectedProposalId);
       if (found) return found;
@@ -109,6 +156,7 @@ export const CodeFixPreview = ({
   const provider = activeProposal?.provider || 'Gemini';
   const model = activeProposal?.model || 'gemini-3.6-flash';
   const instructions = activeProposal?.developerInstructions;
+  const createdAt = activeProposal?.createdAt;
   const isRule = (finding?.source || '').toUpperCase() === 'RULE';
 
   // Handle patch clipboard copy
@@ -130,14 +178,106 @@ export const CodeFixPreview = ({
       }
 
       setCopiedPatch(true);
-      if (toast && toast.success) {
-        toast.success('Unified patch copied to clipboard.', { title: 'Copied' });
+      if (toast?.success) {
+        toast.success('Unified patch copied to clipboard.', { title: 'Copied Patch' });
       }
       setTimeout(() => setCopiedPatch(false), 2000);
     } catch {
-      if (toast && toast.error) {
+      if (toast?.error) {
         toast.error('Failed to copy patch to clipboard.', { title: 'Error' });
       }
+    }
+  };
+
+  // Handle proposed content clipboard copy
+  const handleCopyProposed = async () => {
+    if (!proposedContent) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(proposedContent);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = proposedContent;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!success) throw new Error('Copy command failed');
+      }
+
+      setCopiedProposed(true);
+      if (toast?.success) {
+        toast.success('Proposed code copied to clipboard.', { title: 'Copied Code' });
+      }
+      setTimeout(() => setCopiedProposed(false), 2000);
+    } catch {
+      if (toast?.error) {
+        toast.error('Failed to copy proposed code to clipboard.', { title: 'Error' });
+      }
+    }
+  };
+
+  // Download patch as .patch file
+  const handleDownloadPatch = async () => {
+    if (!proposalId || isDownloadingPatch) return;
+    setIsDownloadingPatch(true);
+    try {
+      const response = await reviewService.downloadFixPatch(proposalId);
+      triggerBlobDownload(response, `ai-fix-proposal-${proposalId}.patch`);
+      if (toast?.success) {
+        toast.success(`Patch file for proposal #${proposalId} downloaded.`, { title: 'Download Complete' });
+      }
+    } catch (err) {
+      const msg = await parseBlobError(err, 'Unable to download the patch.');
+      if (toast?.error) {
+        toast.error(msg, { title: 'Unable to download the patch.' });
+      }
+    } finally {
+      setIsDownloadingPatch(false);
+    }
+  };
+
+  // Download proposed content file
+  const handleDownloadProposed = async () => {
+    if (!proposalId || isDownloadingProposed) return;
+    setIsDownloadingProposed(true);
+    try {
+      const response = await reviewService.downloadProposedContent(proposalId);
+      const safeFallback = filePath ? filePath.replace(/\\/g, '/').split('/').pop() : `proposed-${proposalId}.txt`;
+      triggerBlobDownload(response, safeFallback);
+      if (toast?.success) {
+        toast.success('Proposed file content downloaded.', { title: 'Download Complete' });
+      }
+    } catch (err) {
+      const msg = await parseBlobError(err, 'Unable to download the proposed file.');
+      if (toast?.error) {
+        toast.error(msg, { title: 'Unable to download the proposed file.' });
+      }
+    } finally {
+      setIsDownloadingProposed(false);
+    }
+  };
+
+  // Download original content file
+  const handleDownloadOriginal = async () => {
+    if (!proposalId || !originalContent || isDownloadingOriginal) return;
+    setIsDownloadingOriginal(true);
+    try {
+      const response = await reviewService.downloadOriginalContent(proposalId);
+      const safeFallback = filePath ? filePath.replace(/\\/g, '/').split('/').pop() : `original-${proposalId}.txt`;
+      triggerBlobDownload(response, safeFallback);
+      if (toast?.success) {
+        toast.success('Original file content downloaded.', { title: 'Download Complete' });
+      }
+    } catch (err) {
+      const msg = await parseBlobError(err, 'Unable to download the original file.');
+      if (toast?.error) {
+        toast.error(msg, { title: 'Unable to download the original file.' });
+      }
+    } finally {
+      setIsDownloadingOriginal(false);
     }
   };
 
@@ -147,18 +287,17 @@ export const CodeFixPreview = ({
     setIsUpdatingStatus(true);
     try {
       const updated = await reviewService.updateFixProposalStatus(proposalId, newStatus);
-      // Update in local proposals list
       setProposals((prev) =>
         prev.map((p) => (p.id === proposalId ? { ...p, status: updated.status } : p))
       );
-      if (toast && toast.success) {
+      if (toast?.success) {
         toast.success(`Proposal #${proposalId} marked as ${newStatus.toLowerCase()}.`, {
           title: 'Status Updated'
         });
       }
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to update proposal status.';
-      if (toast && toast.error) {
+      if (toast?.error) {
         toast.error(msg, { title: 'Status Transition Error' });
       }
     } finally {
@@ -174,6 +313,7 @@ export const CodeFixPreview = ({
       return d.toLocaleDateString(undefined, {
         month: 'short',
         day: 'numeric',
+        year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
       });
@@ -194,11 +334,11 @@ export const CodeFixPreview = ({
         return <span className="code-fix-status-badge status-expired">⌛ Expired</span>;
       case 'PROPOSED':
       default:
-        return <span className="code-fix-status-badge status-proposed">Proposed</span>;
+        return <span className="code-fix-status-badge status-proposed">● Proposed</span>;
     }
   };
 
-  // Render unified diff lines with explicit symbols and styles
+  // Render unified diff lines with syntax styling
   const renderDiffLines = () => {
     if (!unifiedDiff) {
       return (
@@ -237,9 +377,9 @@ export const CodeFixPreview = ({
     <div
       className={`code-fix-preview-container ${className}`}
       role="region"
-      aria-label="AI proposed patch preview and fix history"
+      aria-label="AI proposed patch preview and developer review workspace"
     >
-      {/* Safety Warning Banner — ALWAYS CLEAR THAT NO WRITE HAS OCCURRED */}
+      {/* 8. SAFETY NOTICE — COMPACT AND PROMINENT */}
       <div className="code-fix-warning-banner" role="alert">
         <div className="code-fix-warning-icon-group">
           <svg
@@ -259,9 +399,9 @@ export const CodeFixPreview = ({
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
           <div className="code-fix-warning-text">
-            <strong className="code-fix-warning-title">Proposed fix — not applied</strong>
+            <strong className="code-fix-warning-title">AI-generated patch — not applied</strong>
             <p className="code-fix-warning-subtitle">
-              This is an AI-generated proposal stored for review. It has NOT been applied to your repository or pull request.
+              Review and apply this change manually. This system does not modify your repository automatically.
             </p>
           </div>
         </div>
@@ -271,222 +411,366 @@ export const CodeFixPreview = ({
             type="button"
             className="btn btn-outline btn-sm code-fix-close-btn"
             onClick={onClose}
-            aria-label="Close patch preview"
-            title="Close patch preview"
+            aria-label="Close developer review workspace"
+            title="Close developer review workspace"
           >
             ✕ Close
           </button>
         )}
       </div>
 
-      {/* Active Proposal View (if available) */}
+      {/* DEVELOPER REVIEW WORKSPACE */}
       {activeProposal ? (
-        <>
-          {/* Provenance & Target File Info */}
-          <div className="code-fix-meta-bar">
-            {proposalId && (
-              <div className="code-fix-meta-item">
-                <span className="code-fix-meta-label">Proposal:</span>
-                <code className="code-fix-meta-id">#{proposalId}</code>
-              </div>
-            )}
-            <div className="code-fix-meta-item">
-              <span className="code-fix-meta-label">Status:</span>
-              {getStatusBadge(status)}
-            </div>
-            <div className="code-fix-meta-item">
-              <span className="code-fix-meta-label">Target File:</span>
-              <code className="code-fix-meta-path">{filePath}</code>
-            </div>
-            <div className="code-fix-meta-item">
-              <span className="code-fix-meta-label">Finding Source:</span>
-              <span className="code-fix-meta-value">
-                {isRule ? 'Deterministic Rule' : 'AI Review'}
-              </span>
-            </div>
-            <div className="code-fix-meta-item">
-              <span className="code-fix-meta-label">Provider:</span>
-              <span className="code-fix-meta-value code-fix-ai-tag">
-                {provider} ({model})
-              </span>
-            </div>
-          </div>
-
-          {/* Developer Instructions Notice */}
-          {instructions && (
-            <div className="code-fix-instructions-callout">
-              <span className="code-fix-instructions-label">Developer Guidance:</span>
-              <span className="code-fix-instructions-text">"{instructions}"</span>
-            </div>
-          )}
-
-          {/* AI Explanation Section */}
-          {explanation && (
-            <div className="code-fix-explanation-box">
+        <div className="code-fix-workspace">
+          {/* LEFT / CONTEXT COLUMN: Metadata, Explanation, Summary, Lifecycle */}
+          <div className="code-fix-workspace-sidebar">
+            {/* 1. AI FIX PROPOSAL METADATA */}
+            <div className="code-fix-panel code-fix-meta-panel">
               <h5 className="code-fix-section-title">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
                 </svg>
-                Proposed Fix Explanation
+                AI Fix Proposal
               </h5>
-              <p className="code-fix-explanation-text">{explanation}</p>
-              {limitations && (
-                <p className="code-fix-limitations-text">
-                  <strong>Limitations:</strong> {limitations}
-                </p>
-              )}
-            </div>
-          )}
 
-          {/* Content Inspection Tabs (Unified Diff / Original / Proposed) */}
-          <div className="code-fix-diff-wrapper">
-            <div className="code-fix-diff-header">
-              <div className="code-fix-diff-tabs" role="tablist" aria-label="Patch content tabs">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'diff'}
-                  className={`code-fix-tab-btn ${activeTab === 'diff' ? 'code-fix-tab-btn-active' : ''}`}
-                  onClick={() => setActiveTab('diff')}
-                >
-                  Unified Diff
-                </button>
-                {originalContent && (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab === 'original'}
-                    className={`code-fix-tab-btn ${activeTab === 'original' ? 'code-fix-tab-btn-active' : ''}`}
-                    onClick={() => setActiveTab('original')}
-                  >
-                    Original Content
-                  </button>
+              <div className="code-fix-meta-grid">
+                <div className="code-fix-meta-field">
+                  <span className="code-fix-meta-label">Status</span>
+                  <div className="code-fix-meta-value">{getStatusBadge(status)}</div>
+                </div>
+
+                {proposalId && (
+                  <div className="code-fix-meta-field">
+                    <span className="code-fix-meta-label">Proposal ID</span>
+                    <code className="code-fix-meta-id">#{proposalId}</code>
+                  </div>
                 )}
-                {proposedContent && (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab === 'proposed'}
-                    className={`code-fix-tab-btn ${activeTab === 'proposed' ? 'code-fix-tab-btn-active' : ''}`}
-                    onClick={() => setActiveTab('proposed')}
-                  >
-                    Proposed Content
-                  </button>
+
+                <div className="code-fix-meta-field code-fix-meta-field-full">
+                  <span className="code-fix-meta-label">File</span>
+                  <code className="code-fix-meta-path" title={filePath}>{filePath}</code>
+                </div>
+
+                <div className="code-fix-meta-field">
+                  <span className="code-fix-meta-label">Provider</span>
+                  <span className="code-fix-meta-value code-fix-ai-tag">
+                    {provider} {model ? `(${model})` : ''}
+                  </span>
+                </div>
+
+                <div className="code-fix-meta-field">
+                  <span className="code-fix-meta-label">Created</span>
+                  <span className="code-fix-meta-value">{formatDateTime(createdAt)}</span>
+                </div>
+
+                {finding?.source && (
+                  <div className="code-fix-meta-field">
+                    <span className="code-fix-meta-label">Finding Source</span>
+                    <span className="code-fix-meta-value">
+                      {isRule ? 'Deterministic Rule' : 'AI Review'}
+                    </span>
+                  </div>
                 )}
               </div>
-              <span className="code-fix-diff-badge">Read-only preview</span>
+
+              {instructions && (
+                <div className="code-fix-instructions-callout">
+                  <span className="code-fix-instructions-label">Developer Guidance:</span>
+                  <span className="code-fix-instructions-text">"{instructions}"</span>
+                </div>
+              )}
             </div>
 
-            <div className="code-fix-diff-body" tabIndex={0} role="region" aria-label="Proposal code block">
-              {activeTab === 'diff' && renderDiffLines()}
-              {activeTab === 'original' && (
-                <pre className="code-fix-raw-code">
-                  <code>{originalContent}</code>
-                </pre>
-              )}
-              {activeTab === 'proposed' && (
-                <pre className="code-fix-raw-code">
-                  <code>{proposedContent}</code>
-                </pre>
-              )}
+            {/* 2. AI EXPLANATION */}
+            {explanation && (
+              <div className="code-fix-panel code-fix-explanation-box">
+                <h5 className="code-fix-section-title">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  AI Explanation
+                </h5>
+                <p className="code-fix-explanation-text">{explanation}</p>
+                {limitations && (
+                  <p className="code-fix-limitations-text">
+                    <strong>Limitations:</strong> {limitations}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 3. CHANGE SUMMARY */}
+            <div className="code-fix-panel code-fix-summary-panel">
+              <h5 className="code-fix-section-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                Change Summary
+              </h5>
+              <div className="code-fix-summary-badges">
+                <div className={`code-fix-summary-item ${originalContent ? 'available' : 'unavailable'}`}>
+                  <span className="code-fix-summary-dot" aria-hidden="true" />
+                  <span className="code-fix-summary-label">Original Content:</span>
+                  <strong className="code-fix-summary-val">{originalContent ? 'Available' : 'Unavailable'}</strong>
+                </div>
+
+                <div className={`code-fix-summary-item ${proposedContent ? 'available' : 'unavailable'}`}>
+                  <span className="code-fix-summary-dot" aria-hidden="true" />
+                  <span className="code-fix-summary-label">Proposed Content:</span>
+                  <strong className="code-fix-summary-val">{proposedContent ? 'Available' : 'Unavailable'}</strong>
+                </div>
+
+                <div className={`code-fix-summary-item ${unifiedDiff ? 'available' : 'unavailable'}`}>
+                  <span className="code-fix-summary-dot" aria-hidden="true" />
+                  <span className="code-fix-summary-label">Unified Diff:</span>
+                  <strong className="code-fix-summary-val">{unifiedDiff ? 'Available' : 'Unavailable'}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. PROPOSAL LIFECYCLE MANAGEMENT */}
+            <div className="code-fix-panel code-fix-lifecycle-panel">
+              <h5 className="code-fix-section-title">Proposal Status</h5>
+              <div className="code-fix-lifecycle-controls">
+                {proposalId && status === 'PROPOSED' && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm code-fix-btn code-fix-btn-review"
+                      onClick={() => handleUpdateStatus('REVIEWED')}
+                      disabled={isUpdatingStatus}
+                      aria-label="Mark proposed patch as reviewed"
+                    >
+                      ✓ Mark as Reviewed
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm code-fix-btn code-fix-btn-reject"
+                      onClick={() => handleUpdateStatus('REJECTED')}
+                      disabled={isUpdatingStatus}
+                      aria-label="Reject proposed patch"
+                    >
+                      ✕ Reject
+                    </button>
+                  </>
+                )}
+
+                {proposalId && status === 'REVIEWED' && (
+                  <button
+                    type="button"
+                    className="btn btn-sm code-fix-btn code-fix-btn-expire"
+                    onClick={() => handleUpdateStatus('EXPIRED')}
+                    disabled={isUpdatingStatus}
+                    aria-label="Mark reviewed patch as expired"
+                  >
+                    ⌛ Mark as Expired
+                  </button>
+                )}
+
+                {proposalId && (status === 'REJECTED' || status === 'EXPIRED') && (
+                  <span className="code-fix-readonly-indicator" title="This proposal status is final and read-only">
+                    {status === 'REJECTED' ? '✕ Proposal Rejected (read-only)' : '⌛ Proposal Expired (read-only)'}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Proposal Action Controls with Safe Lifecycle Transitions */}
-          <div className="code-fix-actions-toolbar" role="toolbar" aria-label="Patch review actions">
-            <button
-              type="button"
-              className="btn btn-sm btn-outline code-fix-btn"
-              onClick={handleCopyPatch}
-              aria-label="Copy unified patch diff to clipboard"
-              title="Copy unified diff to clipboard"
-            >
-              {copiedPatch ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--status-completed)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span style={{ color: 'var(--status-completed)' }}>Copied Patch!</span>
-                </>
-              ) : (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                  </svg>
-                  <span>Copy Patch</span>
-                </>
-              )}
-            </button>
+          {/* RIGHT / INSPECTION COLUMN: Code Comparison Tabs & Download Actions */}
+          <div className="code-fix-workspace-main">
+            {/* CODE COMPARISON */}
+            <div className="code-fix-diff-wrapper">
+              <div className="code-fix-diff-header">
+                <div className="code-fix-diff-tabs" role="tablist" aria-label="Code comparison tabs">
+                  <button
+                    type="button"
+                    role="tab"
+                    id="tab-diff"
+                    aria-controls="tabpanel-diff"
+                    aria-selected={activeTab === 'diff'}
+                    className={`code-fix-tab-btn ${activeTab === 'diff' ? 'code-fix-tab-btn-active' : ''}`}
+                    onClick={() => setActiveTab('diff')}
+                  >
+                    1. Diff
+                  </button>
+                  {originalContent && (
+                    <button
+                      type="button"
+                      role="tab"
+                      id="tab-original"
+                      aria-controls="tabpanel-original"
+                      aria-selected={activeTab === 'original'}
+                      className={`code-fix-tab-btn ${activeTab === 'original' ? 'code-fix-tab-btn-active' : ''}`}
+                      onClick={() => setActiveTab('original')}
+                    >
+                      2. Original
+                    </button>
+                  )}
+                  {proposedContent && (
+                    <button
+                      type="button"
+                      role="tab"
+                      id="tab-proposed"
+                      aria-controls="tabpanel-proposed"
+                      aria-selected={activeTab === 'proposed'}
+                      className={`code-fix-tab-btn ${activeTab === 'proposed' ? 'code-fix-tab-btn-active' : ''}`}
+                      onClick={() => setActiveTab('proposed')}
+                    >
+                      3. Proposed
+                    </button>
+                  )}
+                </div>
+                <span className="code-fix-diff-badge">Read-only preview</span>
+              </div>
 
-            {/* Allowed Transition Actions based on Proposal Status */}
-            {proposalId && status === 'PROPOSED' && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-sm code-fix-btn code-fix-btn-review"
-                  onClick={() => handleUpdateStatus('REVIEWED')}
-                  disabled={isUpdatingStatus}
-                  aria-label="Mark proposed patch as reviewed"
-                >
-                  ✓ Mark as Reviewed
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm code-fix-btn code-fix-btn-reject"
-                  onClick={() => handleUpdateStatus('REJECTED')}
-                  disabled={isUpdatingStatus}
-                  aria-label="Reject proposed patch"
-                >
-                  ✕ Reject
-                </button>
-              </>
-            )}
-
-            {proposalId && status === 'REVIEWED' && (
-              <button
-                type="button"
-                className="btn btn-sm code-fix-btn code-fix-btn-expire"
-                onClick={() => handleUpdateStatus('EXPIRED')}
-                disabled={isUpdatingStatus}
-                aria-label="Mark reviewed patch as expired"
+              <div
+                className="code-fix-diff-body"
+                tabIndex={0}
+                role="tabpanel"
+                id={`tabpanel-${activeTab}`}
+                aria-labelledby={`tab-${activeTab}`}
               >
-                ⌛ Mark as Expired
-              </button>
-            )}
+                {activeTab === 'diff' && renderDiffLines()}
+                {activeTab === 'original' && (
+                  <pre className="code-fix-raw-code">
+                    <code>{originalContent}</code>
+                  </pre>
+                )}
+                {activeTab === 'proposed' && (
+                  <pre className="code-fix-raw-code">
+                    <code>{proposedContent}</code>
+                  </pre>
+                )}
+              </div>
+            </div>
 
-            {proposalId && (status === 'REJECTED' || status === 'EXPIRED') && (
-              <span className="code-fix-readonly-indicator" title="This proposal status is final and read-only">
-                {status === 'REJECTED' ? '✕ Proposal Rejected' : '⌛ Proposal Expired'}
-              </span>
-            )}
-
-            {onRegenerate && (
+            {/* ACTIONS TOOLBAR */}
+            <div className="code-fix-actions-toolbar" role="toolbar" aria-label="Patch export and inspection actions">
+              {/* Copy Patch */}
               <button
                 type="button"
                 className="btn btn-sm btn-outline code-fix-btn"
-                onClick={onRegenerate}
-                disabled={isRegenerating}
-                aria-label="Regenerate proposed patch with AI"
+                onClick={handleCopyPatch}
+                disabled={!unifiedDiff}
+                aria-label="Copy unified patch diff to clipboard"
+                title="Copy unified diff to clipboard"
               >
-                {isRegenerating ? 'Regenerating...' : '↻ Review Again'}
+                {copiedPatch ? (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--status-completed)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span style={{ color: 'var(--status-completed)' }}>Copied Patch!</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    <span>Copy Patch</span>
+                  </>
+                )}
               </button>
-            )}
 
-            {onClose && (
+              {/* Download Patch */}
               <button
                 type="button"
-                className="btn btn-sm btn-secondary code-fix-btn"
-                onClick={onClose}
-                aria-label="Close diff preview"
+                className="btn btn-sm btn-outline code-fix-btn"
+                onClick={handleDownloadPatch}
+                disabled={!proposalId || isDownloadingPatch}
+                aria-label="Download patch as .patch file"
+                title="Download unified diff as .patch file"
               >
-                Close Preview
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                <span>{isDownloadingPatch ? 'Downloading...' : 'Download Patch'}</span>
               </button>
-            )}
+
+              {/* Download Proposed File */}
+              <button
+                type="button"
+                className="btn btn-sm btn-outline code-fix-btn"
+                onClick={handleDownloadProposed}
+                disabled={!proposalId || isDownloadingProposed}
+                aria-label="Download proposed replacement file"
+                title="Download proposed replacement file"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <polyline points="10 12 12 14 14 12" />
+                  <line x1="12" y1="14" x2="12" y2="8" />
+                </svg>
+                <span>{isDownloadingProposed ? 'Downloading...' : 'Download Proposed File'}</span>
+              </button>
+
+              {/* Copy Proposed Code */}
+              <button
+                type="button"
+                className="btn btn-sm btn-outline code-fix-btn"
+                onClick={handleCopyProposed}
+                disabled={!proposedContent}
+                aria-label="Copy proposed code to clipboard"
+                title="Copy proposed code to clipboard"
+              >
+                {copiedProposed ? (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--status-completed)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span style={{ color: 'var(--status-completed)' }}>Copied Code!</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="16 18 22 12 16 6" />
+                      <polyline points="8 6 2 12 8 18" />
+                    </svg>
+                    <span>Copy Proposed Code</span>
+                  </>
+                )}
+              </button>
+
+              {/* Download Original File (if originalContent exists) */}
+              {originalContent && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline code-fix-btn"
+                  onClick={handleDownloadOriginal}
+                  disabled={!proposalId || isDownloadingOriginal}
+                  aria-label="Download original file"
+                  title="Download original file"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  <span>{isDownloadingOriginal ? 'Downloading...' : 'Download Original File'}</span>
+                </button>
+              )}
+
+              {onRegenerate && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline code-fix-btn"
+                  onClick={onRegenerate}
+                  disabled={isRegenerating}
+                  aria-label="Regenerate proposed patch with AI"
+                >
+                  {isRegenerating ? 'Regenerating...' : '↻ Review Again'}
+                </button>
+              )}
+            </div>
           </div>
-        </>
+        </div>
       ) : (
         /* Empty State when no proposal is active or generated yet */
         <div className="code-fix-empty-state">
@@ -516,7 +800,7 @@ export const CodeFixPreview = ({
         </div>
       )}
 
-      {/* Fix History Section */}
+      {/* 10. FIX HISTORY SECTION */}
       <section className="code-fix-history-section" aria-label="Proposal History">
         <div className="code-fix-history-header">
           <div className="code-fix-history-header-title">
@@ -564,11 +848,11 @@ export const CodeFixPreview = ({
         {/* Empty History State */}
         {!isLoadingHistory && proposals.length === 0 && !historyError && (
           <div className="code-fix-history-empty">
-            <p className="code-fix-history-empty-text">No previous proposals found for this finding.</p>
+            <p className="code-fix-history-empty-text">No AI fix proposals yet.</p>
           </div>
         )}
 
-        {/* Persisted Proposals List */}
+        {/* Persisted Proposals List (Newest First) */}
         {proposals.length > 0 && (
           <div className="code-fix-history-list" role="list">
             {proposals.map((item) => {
@@ -609,8 +893,10 @@ export const CodeFixPreview = ({
                       type="button"
                       className={`btn btn-xs ${isSelected ? 'btn-primary' : 'btn-outline'}`}
                       onClick={() => {
-                        setSelectedProposalId(item.id);
-                        setActiveTab('diff');
+                        if (selectedProposalId !== item.id) {
+                          setSelectedProposalId(item.id);
+                          setActiveTab('diff');
+                        }
                       }}
                       aria-label={`View proposal #${item.id}`}
                     >

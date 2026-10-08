@@ -145,6 +145,30 @@ All endpoints require authentication (`ROLE_USER`, `ROLE_ADMIN`, or `ROLE_DEVELO
 - **Body**: `{ "status": "REVIEWED" | "REJECTED" | "EXPIRED" }`
 - **Response**: `200 OK` with updated `CodeFixProposalResponse` (or `400 Bad Request` if invalid transition).
 
+### Export Patch File
+- **Endpoint**: `GET /api/v1/code-reviews/fixes/{proposalId}/patch`
+- **Headers**:
+  - `Content-Type: text/x-diff`
+  - `Content-Disposition: attachment; filename="ai-fix-proposal-{proposalId}.patch"`
+  - `Cache-Control: no-store`
+- **Response**: `200 OK` with exact persisted unified diff string.
+
+### Export Proposed File Content
+- **Endpoint**: `GET /api/v1/code-reviews/fixes/{proposalId}/proposed-content`
+- **Headers**:
+  - `Content-Type: text/plain`
+  - `Content-Disposition: attachment; filename="{safe-file-name}"`
+  - `Cache-Control: no-store`
+- **Response**: `200 OK` with persisted proposed replacement content.
+
+### Export Original File Content
+- **Endpoint**: `GET /api/v1/code-reviews/fixes/{proposalId}/original-content`
+- **Headers**:
+  - `Content-Type: text/plain`
+  - `Content-Disposition: attachment; filename="{safe-file-name}"`
+  - `Cache-Control: no-store`
+- **Response**: `200 OK` with persisted original file content.
+
 ---
 
 ## 6. Authorization Model
@@ -158,7 +182,25 @@ $$\text{CodeFixProposal} \longrightarrow \text{CodeReviewFinding} \longrightarro
 
 ---
 
-## 7. Why Automatic GitHub Application is Intentionally Not Implemented
+## 7. Patch Export and Developer Review Workspace
+
+The Developer Review Workspace provides a focused, side-by-side developer inspection environment:
+
+1. **Persisted Patch Export**:
+   - The developer can export the unified diff as a standard `.patch` file (`ai-fix-proposal-{id}.patch`).
+   - The file can be applied directly in a local Git working copy using `git apply ai-fix-proposal-{id}.patch`.
+2. **Safe File Export**:
+   - Both proposed content and original content can be downloaded with filenames securely derived from `CodeFixProposal.filePath`.
+   - Path traversal attempts, directory separators, and arbitrary client filenames are strictly sanitized.
+3. **HTTP Caching Guardrails**:
+   - Export endpoints explicitly set `Cache-Control: no-store` to prevent caching sensitive proprietary source code across intermediary proxies or browser caches.
+4. **Developer-Controlled Workflow**:
+   - The developer retains full discretion: inspect diffs, test locally, and commit with standard developer tooling.
+   - The UI prominently flags patches as "AI-generated patch — not applied" with supporting advisory text.
+
+---
+
+## 8. Why Automatic GitHub Application is Intentionally Not Implemented
 
 1. **Safety First**: AI-generated code fixes can introduce subtle regressions, breaking changes, or syntax errors. Unattended commits or pushes undermine code stability.
 2. **Review Integrity**: Pull requests represent author accountability. Silently modifying pull request branches from a bot creates race conditions and unexpected merge conflicts with active local developer branches.
@@ -166,7 +208,7 @@ $$\text{CodeFixProposal} \longrightarrow \text{CodeReviewFinding} \longrightarro
 
 ---
 
-## 8. Future Extension Points
+## 9. Future Extension Points
 
 - **GitHub Suggested Changes Comments**: Future versions can optionally format reviewed proposals as GitHub suggestion markdown blocks (` ```suggestion `) in PR review comments upon explicit developer command.
 - **Automated Pull Request Branch Creation**: In managed environments with explicit opt-in, creating isolated preview branches (e.g. `ai-fix/finding-123`) for CI validation prior to developer review.

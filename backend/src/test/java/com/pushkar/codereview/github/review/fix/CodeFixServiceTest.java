@@ -256,6 +256,130 @@ class CodeFixServiceTest {
         assertThat(respExpired.getStatus()).isEqualTo(CodeFixProposalStatus.EXPIRED);
     }
 
+    @Test
+    void testGetProposalPatch_Success() {
+        User ownerUser = new User();
+        ownerUser.setId(10L);
+        CodeReview review = new CodeReview(12345L, "owner", "repo", 1, ownerUser);
+        CodeReviewFinding finding = new CodeReviewFinding(review, "src/main/ActivityService.java", 12, null,
+                ReviewFindingSeverity.HIGH, ReviewFindingCategory.BUG, "Bug message", "Fix suggestion");
+        finding.setId(1L);
+
+        when(findingRepository.findById(1L)).thenReturn(Optional.of(finding));
+        currentUserService.setAuthenticated(true);
+        currentUserService.setAdmin(false);
+        currentUserService.setCurrentUserId(10L);
+
+        String unifiedDiff = "--- a/src/main/ActivityService.java\n+++ b/src/main/ActivityService.java\n@@ -12 +12 @@\n-old\n+new";
+        CodeFixProposal p = new CodeFixProposal(1L, "src/main/ActivityService.java", "Exp", unifiedDiff,
+                "old content", "new content", "Gemini", "gemini-3.6-flash", null, CodeFixProposalStatus.PROPOSED);
+        CodeFixProposal saved = proposalRepository.save(p);
+
+        String patch = codeFixService.getProposalPatch(saved.getId());
+        assertThat(patch).isEqualTo(unifiedDiff);
+    }
+
+    @Test
+    void testGetProposalPatch_Unauthorized_ThrowsAccessDeniedException() {
+        User ownerUser = new User();
+        ownerUser.setId(10L);
+        CodeReview review = new CodeReview(12345L, "owner", "repo", 1, ownerUser);
+        CodeReviewFinding finding = new CodeReviewFinding(review, "src/main/ActivityService.java", 12, null,
+                ReviewFindingSeverity.HIGH, ReviewFindingCategory.BUG, "Bug message", "Fix suggestion");
+        finding.setId(1L);
+
+        when(findingRepository.findById(1L)).thenReturn(Optional.of(finding));
+        currentUserService.setAuthenticated(true);
+        currentUserService.setAdmin(false);
+        currentUserService.setCurrentUserId(999L); // Different user
+
+        CodeFixProposal p = new CodeFixProposal(1L, "src/main/ActivityService.java", "Exp", "diff",
+                "old", "new", "Gemini", "gemini-3.6-flash", null, CodeFixProposalStatus.PROPOSED);
+        CodeFixProposal saved = proposalRepository.save(p);
+
+        assertThatThrownBy(() -> codeFixService.getProposalPatch(saved.getId()))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("do not have permission");
+    }
+
+    @Test
+    void testGetProposalPatch_NotFound_ThrowsResourceNotFoundException() {
+        currentUserService.setAuthenticated(true);
+        currentUserService.setCurrentUserId(10L);
+
+        assertThatThrownBy(() -> codeFixService.getProposalPatch(9999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Fix proposal not found with id: 9999");
+    }
+
+    @Test
+    void testGetProposedContent_Success_DerivesSafeFileName() {
+        User ownerUser = new User();
+        ownerUser.setId(10L);
+        CodeReview review = new CodeReview(12345L, "owner", "repo", 1, ownerUser);
+        CodeReviewFinding finding = new CodeReviewFinding(review, "src/main/ActivityService.java", 12, null,
+                ReviewFindingSeverity.HIGH, ReviewFindingCategory.BUG, "Bug message", "Fix suggestion");
+        finding.setId(1L);
+
+        when(findingRepository.findById(1L)).thenReturn(Optional.of(finding));
+        currentUserService.setAuthenticated(true);
+        currentUserService.setAdmin(false);
+        currentUserService.setCurrentUserId(10L);
+
+        CodeFixProposal p = new CodeFixProposal(1L, "src/main/ActivityService.java", "Exp", "diff",
+                "old content", "proposed content", "Gemini", "gemini-3.6-flash", null, CodeFixProposalStatus.PROPOSED);
+        CodeFixProposal saved = proposalRepository.save(p);
+
+        com.pushkar.codereview.github.review.dto.FileExportContent export = codeFixService.getProposedContent(saved.getId());
+        assertThat(export.filename()).isEqualTo("ActivityService.java");
+        assertThat(export.content()).isEqualTo("proposed content");
+    }
+
+    @Test
+    void testGetOriginalContent_Success() {
+        User ownerUser = new User();
+        ownerUser.setId(10L);
+        CodeReview review = new CodeReview(12345L, "owner", "repo", 1, ownerUser);
+        CodeReviewFinding finding = new CodeReviewFinding(review, "src/main/ActivityService.java", 12, null,
+                ReviewFindingSeverity.HIGH, ReviewFindingCategory.BUG, "Bug message", "Fix suggestion");
+        finding.setId(1L);
+
+        when(findingRepository.findById(1L)).thenReturn(Optional.of(finding));
+        currentUserService.setAuthenticated(true);
+        currentUserService.setAdmin(false);
+        currentUserService.setCurrentUserId(10L);
+
+        CodeFixProposal p = new CodeFixProposal(1L, "src/main/ActivityService.java", "Exp", "diff",
+                "original content", "proposed content", "Gemini", "gemini-3.6-flash", null, CodeFixProposalStatus.PROPOSED);
+        CodeFixProposal saved = proposalRepository.save(p);
+
+        com.pushkar.codereview.github.review.dto.FileExportContent export = codeFixService.getOriginalContent(saved.getId());
+        assertThat(export.filename()).isEqualTo("ActivityService.java");
+        assertThat(export.content()).isEqualTo("original content");
+    }
+
+    @Test
+    void testDeriveSafeFileName_Variations() {
+        assertThat(CodeFixService.deriveSafeFileName("src/main/ActivityService.java", "fallback.txt"))
+                .isEqualTo("ActivityService.java");
+        assertThat(CodeFixService.deriveSafeFileName("win\\path\\Helper.kt", "fallback.txt"))
+                .isEqualTo("Helper.kt");
+        assertThat(CodeFixService.deriveSafeFileName("../../etc/passwd", "fallback.txt"))
+                .isEqualTo("passwd");
+        assertThat(CodeFixService.deriveSafeFileName("/absolute/root/file.py", "fallback.txt"))
+                .isEqualTo("file.py");
+        assertThat(CodeFixService.deriveSafeFileName("C:\\Windows\\System32\\cmd.exe", "fallback.txt"))
+                .isEqualTo("cmd.exe");
+        assertThat(CodeFixService.deriveSafeFileName("file with spaces.java", "fallback.txt"))
+                .isEqualTo("file_with_spaces.java");
+        assertThat(CodeFixService.deriveSafeFileName(null, "fallback.txt"))
+                .isEqualTo("fallback.txt");
+        assertThat(CodeFixService.deriveSafeFileName("", "fallback.txt"))
+                .isEqualTo("fallback.txt");
+        assertThat(CodeFixService.deriveSafeFileName("....", "fallback.txt"))
+                .isEqualTo("fallback.txt");
+    }
+
     private static class StubCurrentUserService extends CurrentUserService {
         private boolean authenticated;
         private boolean admin;

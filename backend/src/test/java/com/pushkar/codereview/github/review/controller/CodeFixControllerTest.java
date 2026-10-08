@@ -217,10 +217,119 @@ class CodeFixControllerTest {
                 .andExpect(jsonPath("$.message").value("Invalid status transition from REJECTED to REVIEWED"));
     }
 
+    @Test
+    void testDownloadFixPatch_Success_Returns200WithHeadersAndPatch() throws Exception {
+        stubService.setPatch("--- a/Test.java\n+++ b/Test.java\n@@ -1 +1 @@\n-old\n+new");
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/50/patch"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CONTENT_TYPE, org.hamcrest.Matchers.containsString("text/x-diff")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"ai-fix-proposal-50.patch\""))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string("--- a/Test.java\n+++ b/Test.java\n@@ -1 +1 @@\n-old\n+new"));
+    }
+
+    @Test
+    void testDownloadFixPatch_Unauthorized_Returns403() throws Exception {
+        stubService.setException(new AccessDeniedException("Access denied for this fix proposal"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/50/patch"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    void testDownloadFixPatch_NotFound_Returns404() throws Exception {
+        stubService.setException(new ResourceNotFoundException("Fix proposal not found with id: 999"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/999/patch"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Resource Not Found"));
+    }
+
+    @Test
+    void testDownloadProposedContent_Success_Returns200WithHeaders() throws Exception {
+        stubService.setProposedExport(new com.pushkar.codereview.github.review.dto.FileExportContent(
+                "ActivityService.java", "public class ActivityService { // new code }"
+        ));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/50/proposed-content"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CONTENT_TYPE, org.hamcrest.Matchers.containsString("text/plain")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"ActivityService.java\""))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string("public class ActivityService { // new code }"));
+    }
+
+    @Test
+    void testDownloadProposedContent_Unauthorized_Returns403() throws Exception {
+        stubService.setException(new AccessDeniedException("Access denied for this fix proposal"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/50/proposed-content"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    void testDownloadProposedContent_NotFound_Returns404() throws Exception {
+        stubService.setException(new ResourceNotFoundException("Fix proposal not found with id: 999"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/999/proposed-content"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Resource Not Found"));
+    }
+
+    @Test
+    void testDownloadOriginalContent_Success_Returns200WithHeaders() throws Exception {
+        stubService.setOriginalExport(new com.pushkar.codereview.github.review.dto.FileExportContent(
+                "ActivityService.java", "public class ActivityService { // old code }"
+        ));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/50/original-content"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CONTENT_TYPE, org.hamcrest.Matchers.containsString("text/plain")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"ActivityService.java\""))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(org.springframework.http.HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string("public class ActivityService { // old code }"));
+    }
+
+    @Test
+    void testDownloadOriginalContent_Unauthorized_Returns403() throws Exception {
+        stubService.setException(new AccessDeniedException("Access denied for this fix proposal"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/50/original-content"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    void testDownloadOriginalContent_NotFound_Returns404() throws Exception {
+        stubService.setException(new ResourceNotFoundException("Fix proposal not found with id: 999"));
+
+        mockMvc.perform(get("/api/v1/code-reviews/fixes/999/original-content"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Resource Not Found"));
+    }
+
     private static class StubCodeFixService extends CodeFixService {
         private CodeFixResponse response;
         private List<CodeFixProposalResponse> proposalResponses;
         private CodeFixProposalResponse singleProposalResponse;
+        private String patch;
+        private com.pushkar.codereview.github.review.dto.FileExportContent proposedExport;
+        private com.pushkar.codereview.github.review.dto.FileExportContent originalExport;
         private RuntimeException exception;
 
         public StubCodeFixService() {
@@ -237,6 +346,18 @@ class CodeFixControllerTest {
 
         public void setSingleProposalResponse(CodeFixProposalResponse singleProposalResponse) {
             this.singleProposalResponse = singleProposalResponse;
+        }
+
+        public void setPatch(String patch) {
+            this.patch = patch;
+        }
+
+        public void setProposedExport(com.pushkar.codereview.github.review.dto.FileExportContent proposedExport) {
+            this.proposedExport = proposedExport;
+        }
+
+        public void setOriginalExport(com.pushkar.codereview.github.review.dto.FileExportContent originalExport) {
+            this.originalExport = originalExport;
         }
 
         public void setException(RuntimeException exception) {
@@ -273,6 +394,30 @@ class CodeFixControllerTest {
                 throw exception;
             }
             return singleProposalResponse;
+        }
+
+        @Override
+        public String getProposalPatch(Long proposalId) {
+            if (exception != null) {
+                throw exception;
+            }
+            return patch;
+        }
+
+        @Override
+        public com.pushkar.codereview.github.review.dto.FileExportContent getProposedContent(Long proposalId) {
+            if (exception != null) {
+                throw exception;
+            }
+            return proposedExport;
+        }
+
+        @Override
+        public com.pushkar.codereview.github.review.dto.FileExportContent getOriginalContent(Long proposalId) {
+            if (exception != null) {
+                throw exception;
+            }
+            return originalExport;
         }
     }
 }

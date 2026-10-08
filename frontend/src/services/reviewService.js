@@ -49,6 +49,27 @@ export const reviewService = {
   async updateFixProposalStatus(proposalId, status) {
     const response = await api.patch(`/code-reviews/fixes/${proposalId}/status`, { status });
     return response.data;
+  },
+
+  async downloadFixPatch(proposalId) {
+    const response = await api.get(`/code-reviews/fixes/${proposalId}/patch`, {
+      responseType: 'blob'
+    });
+    return response;
+  },
+
+  async downloadProposedContent(proposalId) {
+    const response = await api.get(`/code-reviews/fixes/${proposalId}/proposed-content`, {
+      responseType: 'blob'
+    });
+    return response;
+  },
+
+  async downloadOriginalContent(proposalId) {
+    const response = await api.get(`/code-reviews/fixes/${proposalId}/original-content`, {
+      responseType: 'blob'
+    });
+    return response;
   }
 };
 

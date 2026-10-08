@@ -4,8 +4,10 @@ import com.pushkar.codereview.github.review.dto.CodeFixProposalResponse;
 import com.pushkar.codereview.github.review.dto.CodeFixProposalStatusRequest;
 import com.pushkar.codereview.github.review.dto.CodeFixRequest;
 import com.pushkar.codereview.github.review.dto.CodeFixResponse;
+import com.pushkar.codereview.github.review.dto.FileExportContent;
 import com.pushkar.codereview.github.review.fix.CodeFixService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -58,5 +60,39 @@ public class CodeFixController {
         }
         CodeFixProposalResponse updated = codeFixService.updateProposalStatus(proposalId, request.getStatus());
         return ResponseEntity.ok(updated);
+    }
+
+    @GetMapping("/fixes/{proposalId}/patch")
+    public ResponseEntity<String> downloadFixPatch(@PathVariable Long proposalId) {
+        String patch = codeFixService.getProposalPatch(proposalId);
+        String filename = "ai-fix-proposal-" + proposalId + ".patch";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "text/x-diff")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(patch);
+    }
+
+    @GetMapping("/fixes/{proposalId}/proposed-content")
+    public ResponseEntity<String> downloadProposedContent(@PathVariable Long proposalId) {
+        FileExportContent export = codeFixService.getProposedContent(proposalId);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "text/plain")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + export.filename() + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(export.content());
+    }
+
+    @GetMapping("/fixes/{proposalId}/original-content")
+    public ResponseEntity<String> downloadOriginalContent(@PathVariable Long proposalId) {
+        FileExportContent export = codeFixService.getOriginalContent(proposalId);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "text/plain")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + export.filename() + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(export.content());
     }
 }

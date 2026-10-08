@@ -7,6 +7,7 @@ import com.pushkar.codereview.github.review.GithubPullRequestReviewService;
 import com.pushkar.codereview.github.review.dto.CodeFixProposalResponse;
 import com.pushkar.codereview.github.review.dto.CodeFixRequest;
 import com.pushkar.codereview.github.review.dto.CodeFixResponse;
+import com.pushkar.codereview.github.review.dto.FileExportContent;
 import com.pushkar.codereview.github.review.dto.PullRequestReviewContext;
 import com.pushkar.codereview.github.review.persistence.CodeReview;
 import com.pushkar.codereview.github.review.persistence.CodeReviewFinding;
@@ -138,16 +139,16 @@ public class CodeFixService {
                     : "gemini-3.6-flash";
 
             CodeFixProposal proposal = new CodeFixProposal(
-                    finding.getId(),
-                    targetPath,
-                    response.getExplanation(),
-                    response.getUnifiedDiff(),
-                    response.getOriginalContent(),
-                    response.getProposedContent(),
-                    provider,
-                    model,
-                    instructions,
-                    CodeFixProposalStatus.PROPOSED
+                finding.getId(),
+                targetPath,
+                response.getExplanation(),
+                response.getUnifiedDiff(),
+                response.getOriginalContent(),
+                response.getProposedContent(),
+                provider,
+                model,
+                instructions,
+                CodeFixProposalStatus.PROPOSED
             );
 
             CodeFixProposal savedProposal = proposalRepository.save(proposal);
@@ -181,7 +182,7 @@ public class CodeFixService {
                 .toList();
     }
 
-    public CodeFixProposalResponse getProposal(Long proposalId) {
+    public CodeFixProposal getAuthorizedProposal(Long proposalId) {
         if (proposalId == null || proposalId <= 0) {
             throw new IllegalArgumentException("Proposal ID must be positive");
         }
@@ -203,7 +204,30 @@ public class CodeFixService {
 
         authorizeReview(review);
 
-        return CodeFixProposalResponse.fromEntity(proposal);
+        return proposal;
+    }
+
+    public CodeFixProposalResponse getProposal(Long proposalId) {
+        return CodeFixProposalResponse.fromEntity(getAuthorizedProposal(proposalId));
+    }
+
+    public String getProposalPatch(Long proposalId) {
+        CodeFixProposal proposal = getAuthorizedProposal(proposalId);
+        return proposal.getUnifiedDiff() != null ? proposal.getUnifiedDiff() : "";
+    }
+
+    public FileExportContent getProposedContent(Long proposalId) {
+        CodeFixProposal proposal = getAuthorizedProposal(proposalId);
+        String safeName = deriveSafeFileName(proposal.getFilePath(), "proposed-file-" + proposalId + ".txt");
+        String content = proposal.getProposedContent() != null ? proposal.getProposedContent() : "";
+        return new FileExportContent(safeName, content);
+    }
+
+    public FileExportContent getOriginalContent(Long proposalId) {
+        CodeFixProposal proposal = getAuthorizedProposal(proposalId);
+        String safeName = deriveSafeFileName(proposal.getFilePath(), "original-file-" + proposalId + ".txt");
+        String content = proposal.getOriginalContent() != null ? proposal.getOriginalContent() : "";
+        return new FileExportContent(safeName, content);
     }
 
     @Transactional
@@ -216,22 +240,7 @@ public class CodeFixService {
             throw new IllegalArgumentException("Target status is required");
         }
 
-        if (proposalRepository == null) {
-            throw new ResourceNotFoundException("Fix proposal not found with id: " + proposalId);
-        }
-
-        CodeFixProposal proposal = proposalRepository.findById(proposalId)
-                .orElseThrow(() -> new ResourceNotFoundException("Fix proposal not found with id: " + proposalId));
-
-        CodeReviewFinding finding = findingRepository.findById(proposal.getFindingId())
-                .orElseThrow(() -> new ResourceNotFoundException("Review finding not found with id: " + proposal.getFindingId()));
-
-        CodeReview review = finding.getCodeReview();
-        if (review == null) {
-            throw new IllegalStateException("Review finding is not associated with a CodeReview entity");
-        }
-
-        authorizeReview(review);
+        CodeFixProposal proposal = getAuthorizedProposal(proposalId);
 
         CodeFixProposalStatus currentStatus = proposal.getStatus();
         if (!currentStatus.canTransitionTo(targetStatus)) {
@@ -244,6 +253,36 @@ public class CodeFixService {
         CodeFixProposal updated = proposalRepository.save(proposal);
 
         return CodeFixProposalResponse.fromEntity(updated);
+    }
+
+    public static String deriveSafeFileName(String filePath, String fallback) {
+        if (filePath == null || filePath.isBlank()) {
+            return fallback;
+        }
+
+        // Normalize slashes
+        String normalized = filePath.replace('\\', '/').trim();
+
+        // Extract last segment after slash
+        int lastSlash = normalized.lastIndexOf('/');
+        String candidate = (lastSlash >= 0) ? normalized.substring(lastSlash + 1).trim() : normalized;
+
+        // Strip path traversal attempts and dangerous characters
+        candidate = candidate.replace("..", "").replace("/", "").replace("\\", "").trim();
+
+        // Keep only safe characters: alphanumeric, dots, underscores, hyphens
+        candidate = candidate.replaceAll("[^a-zA-Z0-9._-]", "_");
+
+        // Clean leading dots to prevent hidden/special files
+        while (candidate.startsWith(".")) {
+            candidate = candidate.substring(1);
+        }
+
+        if (candidate.isBlank() || candidate.equalsIgnoreCase("txt") || candidate.equals("_")) {
+            return fallback;
+        }
+
+        return candidate;
     }
 
     private void authorizeReview(CodeReview review) {

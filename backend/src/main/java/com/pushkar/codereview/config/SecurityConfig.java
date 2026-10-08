@@ -70,7 +70,7 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(java.util.List.of("http://localhost:*", "http://127.0.0.1:*"));
         configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
         configuration.setAllowedHeaders(java.util.List.of("*"));
-        configuration.setExposedHeaders(java.util.List.of("Authorization", "X-Correlation-ID", "X-Correlation-Id"));
+        configuration.setExposedHeaders(java.util.List.of("Authorization", "X-Correlation-ID", "X-Correlation-Id", "Content-Disposition"));
         configuration.setAllowCredentials(true);
         org.springframework.web.cors.UrlBasedCorsConfigurationSource source = new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
