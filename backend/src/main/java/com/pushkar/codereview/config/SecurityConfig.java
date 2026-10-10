@@ -99,7 +99,9 @@ public class SecurityConfig {
                                 "/code-reviews/**",
                                 "/api/v1/code-reviews/**",
                                 "/github/installations/**",
-                                "/api/v1/github/installations/**"
+                                "/api/v1/github/installations/**",
+                                "/analytics/**",
+                                "/api/v1/analytics/**"
                         ).hasAnyRole("USER", "ADMIN", "DEVELOPER")
                         .anyRequest().authenticated()
                 );

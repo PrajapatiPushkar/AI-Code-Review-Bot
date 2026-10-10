@@ -13,6 +13,7 @@ import ReviewDetailsPage from './pages/ReviewDetailsPage';
 import ReviewFindingsPage from './pages/ReviewFindingsPage';
 import RepositoriesPage from './pages/RepositoriesPage';
 import FindingsExplorerPlaceholderPage from './pages/FindingsExplorerPlaceholderPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
               <Route path="/reviews/:id" element={<ReviewDetailsPage />} />
               <Route path="/reviews/:id/findings" element={<ReviewFindingsPage />} />
               <Route path="/findings" element={<FindingsExplorerPlaceholderPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
 

@@ -163,6 +163,21 @@ class CodeReviewPersistenceServiceTest {
                     .sorted(java.util.Comparator.comparing(CodeReview::getId).reversed())
                     .toList();
         }
+
+        @Override
+        public com.pushkar.codereview.analytics.projection.ReviewOverviewProjection getOverviewStats(Long userId, String owner, String repository, java.time.Instant fromInstant, java.time.Instant toInstant) {
+            return null;
+        }
+
+        @Override
+        public java.util.List<com.pushkar.codereview.analytics.projection.ReviewTrendRowProjection> getTrendRows(Long userId, String owner, String repository, java.time.Instant fromInstant, java.time.Instant toInstant) {
+            return java.util.List.of();
+        }
+
+        @Override
+        public java.util.List<com.pushkar.codereview.analytics.projection.RepositoryReviewSummaryProjection> getRepositoryReviewSummaries(Long userId, String owner, String repository, java.time.Instant fromInstant, java.time.Instant toInstant) {
+            return java.util.List.of();
+        }
     }
 
     private static abstract class StubJpaRepository<T, ID> implements org.springframework.data.jpa.repository.JpaRepository<T, ID>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<T> {

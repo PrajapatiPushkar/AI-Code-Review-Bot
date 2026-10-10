@@ -282,6 +282,31 @@ class CodeReviewHistoryServiceTest {
             }
             return result;
         }
+
+        @Override
+        public List<com.pushkar.codereview.analytics.projection.FindingSeverityGroupProjection> countFindingsBySeverity(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return List.of();
+        }
+
+        @Override
+        public List<com.pushkar.codereview.analytics.projection.FindingCategoryGroupProjection> countFindingsByCategory(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return List.of();
+        }
+
+        @Override
+        public long countRuleBasedFindings(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return 0;
+        }
+
+        @Override
+        public long countTotalFindings(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return 0;
+        }
+
+        @Override
+        public List<com.pushkar.codereview.analytics.projection.RepositoryFindingSeverityProjection> countRepositoryFindingsBySeverity(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return List.of();
+        }
     }
 
     private static class StubCodeReviewRepository extends StubJpaRepository<CodeReview, Long> implements CodeReviewRepository {
@@ -336,6 +361,21 @@ class CodeReviewHistoryServiceTest {
                     .filter(r -> statuses != null && statuses.contains(r.getStatus()))
                     .sorted(Comparator.comparing(CodeReview::getId).reversed())
                     .toList();
+        }
+
+        @Override
+        public com.pushkar.codereview.analytics.projection.ReviewOverviewProjection getOverviewStats(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return null;
+        }
+
+        @Override
+        public List<com.pushkar.codereview.analytics.projection.ReviewTrendRowProjection> getTrendRows(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return List.of();
+        }
+
+        @Override
+        public List<com.pushkar.codereview.analytics.projection.RepositoryReviewSummaryProjection> getRepositoryReviewSummaries(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {
+            return List.of();
         }
     }
 

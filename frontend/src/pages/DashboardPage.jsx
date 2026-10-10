@@ -75,6 +75,9 @@ const DashboardPage = () => {
           <p className="page-subtitle">Monitor automated AI code reviews, pull request throughput, and quality findings.</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Link to="/analytics" className="btn btn-outline btn-sm">
+            Analytics & Health →
+          </Link>
           <Link to="/reviews" className="btn btn-outline btn-sm">
             View All History →
           </Link>
