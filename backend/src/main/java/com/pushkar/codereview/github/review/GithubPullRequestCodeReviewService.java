@@ -134,6 +134,8 @@ public class GithubPullRequestCodeReviewService {
                         throw new AccessDeniedException("You do not have permission to access this installation");
                     }
                 }
+            } else if (currentUser == null) {
+                currentUser = installation.getUser();
             }
 
             if (!installation.isVerified()) {

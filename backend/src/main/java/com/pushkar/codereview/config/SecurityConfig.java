@@ -93,7 +93,9 @@ public class SecurityConfig {
                                 "/auth/register",
                                 "/api/v1/auth/register",
                                 "/auth/login",
-                                "/api/v1/auth/login"
+                                "/api/v1/auth/login",
+                                "/webhooks/**",
+                                "/api/v1/webhooks/**"
                         ).permitAll()
                         .requestMatchers(
                                 "/code-reviews/**",
