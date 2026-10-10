@@ -70,6 +70,11 @@ export const reviewService = {
       responseType: 'blob'
     });
     return response;
+  },
+
+  async getQualityGate(id) {
+    const response = await api.get(`/code-reviews/${id}/quality-gate`);
+    return response.data;
   }
 };
 

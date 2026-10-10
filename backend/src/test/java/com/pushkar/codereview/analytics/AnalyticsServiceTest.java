@@ -577,6 +577,9 @@ class AnalyticsServiceTest {
             return database.values().stream().filter(r -> r.getUser() != null && userId.equals(r.getUser().getId())).toList();
         }
         @Override public Optional<Repository> findByIdAndUserId(Long id, Long userId) { return Optional.empty(); }
+        @Override public Optional<Repository> findByGithubRepositoryId(Long githubRepositoryId) { return database.values().stream().filter(r -> githubRepositoryId != null && githubRepositoryId.equals(r.getGithubRepositoryId())).findFirst(); }
+        @Override public Optional<Repository> findByFullNameIgnoreCase(String fullName) { return database.values().stream().filter(r -> fullName != null && fullName.equalsIgnoreCase(r.getFullName())).findFirst(); }
+        @Override public List<Repository> findByNameIgnoreCase(String name) { return database.values().stream().filter(r -> name != null && name.equalsIgnoreCase(r.getName())).toList(); }
     }
 
     private static abstract class BaseStubJpaRepository<T, ID> implements org.springframework.data.jpa.repository.JpaRepository<T, ID>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<T> {

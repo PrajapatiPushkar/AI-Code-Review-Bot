@@ -28,12 +28,14 @@ public class AsyncCodeReviewRunner {
     private final CodeReviewMetrics codeReviewMetrics;
     private final com.pushkar.codereview.github.review.rule.DeterministicRuleEngine deterministicRuleEngine;
     private final com.pushkar.codereview.github.review.rule.ReviewFindingMerger findingMerger;
+    private final com.pushkar.codereview.qualitygate.QualityGateService qualityGateService;
+    private final com.pushkar.codereview.policy.RepositoryPolicyService repositoryPolicyService;
 
     public AsyncCodeReviewRunner(GithubPullRequestReviewService pullRequestReviewService,
                                   AiReviewService aiReviewService,
                                   GithubReviewCommentService reviewCommentService,
                                   CodeReviewPersistenceService persistenceService) {
-        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null, null, null);
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, null, null, null, null, null);
     }
 
     public AsyncCodeReviewRunner(GithubPullRequestReviewService pullRequestReviewService,
@@ -41,7 +43,17 @@ public class AsyncCodeReviewRunner {
                                   GithubReviewCommentService reviewCommentService,
                                   CodeReviewPersistenceService persistenceService,
                                   CodeReviewMetrics codeReviewMetrics) {
-        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, codeReviewMetrics, null, null);
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, codeReviewMetrics, null, null, null, null);
+    }
+
+    public AsyncCodeReviewRunner(GithubPullRequestReviewService pullRequestReviewService,
+                                  AiReviewService aiReviewService,
+                                  GithubReviewCommentService reviewCommentService,
+                                  CodeReviewPersistenceService persistenceService,
+                                  CodeReviewMetrics codeReviewMetrics,
+                                  com.pushkar.codereview.github.review.rule.DeterministicRuleEngine deterministicRuleEngine,
+                                  com.pushkar.codereview.github.review.rule.ReviewFindingMerger findingMerger) {
+        this(pullRequestReviewService, aiReviewService, reviewCommentService, persistenceService, codeReviewMetrics, deterministicRuleEngine, findingMerger, null, null);
     }
 
     @Autowired
@@ -51,7 +63,9 @@ public class AsyncCodeReviewRunner {
                                   CodeReviewPersistenceService persistenceService,
                                   @Autowired(required = false) CodeReviewMetrics codeReviewMetrics,
                                   @Autowired(required = false) com.pushkar.codereview.github.review.rule.DeterministicRuleEngine deterministicRuleEngine,
-                                  @Autowired(required = false) com.pushkar.codereview.github.review.rule.ReviewFindingMerger findingMerger) {
+                                  @Autowired(required = false) com.pushkar.codereview.github.review.rule.ReviewFindingMerger findingMerger,
+                                  @Autowired(required = false) com.pushkar.codereview.qualitygate.QualityGateService qualityGateService,
+                                  @Autowired(required = false) com.pushkar.codereview.policy.RepositoryPolicyService repositoryPolicyService) {
         this.pullRequestReviewService = pullRequestReviewService;
         this.aiReviewService = aiReviewService;
         this.reviewCommentService = reviewCommentService;
@@ -59,6 +73,8 @@ public class AsyncCodeReviewRunner {
         this.codeReviewMetrics = codeReviewMetrics;
         this.deterministicRuleEngine = deterministicRuleEngine;
         this.findingMerger = findingMerger != null ? findingMerger : new com.pushkar.codereview.github.review.rule.ReviewFindingMerger();
+        this.qualityGateService = qualityGateService;
+        this.repositoryPolicyService = repositoryPolicyService;
     }
 
     @Async("taskExecutor")
@@ -100,6 +116,18 @@ public class AsyncCodeReviewRunner {
                         : "HEAD";
             }
 
+            // Resolve effective repository policy
+            com.pushkar.codereview.policy.RepositoryReviewPolicy effectivePolicy = null;
+            if (repositoryPolicyService != null) {
+                try {
+                    effectivePolicy = repositoryPolicyService.resolveEffectivePolicy(owner, repository);
+                } catch (Exception policyEx) {
+                    log.warn("Failed resolving review policy for repository={}/{}, using default: {}",
+                            owner, repository, policyEx.getMessage());
+                }
+            }
+            java.util.Set<String> enabledRules = (effectivePolicy != null) ? effectivePolicy.getEnabledRuleIdsSet() : null;
+
             // Hybrid pipeline: evaluate deterministic rules and merge with AI findings
             ReviewResult reviewResult = aiReviewResult;
             if (deterministicRuleEngine != null && reviewInput != null) {
@@ -107,7 +135,7 @@ public class AsyncCodeReviewRunner {
                     com.pushkar.codereview.github.review.rule.ReviewAnalysisContext analysisContext =
                             com.pushkar.codereview.github.review.rule.ReviewAnalysisContext.fromReviewInput(reviewInput, commitId);
                     List<com.pushkar.codereview.github.review.rule.RuleFinding> ruleFindings =
-                            deterministicRuleEngine.evaluate(analysisContext);
+                            deterministicRuleEngine.evaluate(analysisContext, enabledRules);
                     reviewResult = findingMerger.merge(aiReviewResult, ruleFindings);
                 } catch (Exception ruleEx) {
                     log.warn("Deterministic rule evaluation failed for reviewId={}, falling back to AI findings: {}",
@@ -129,6 +157,15 @@ public class AsyncCodeReviewRunner {
 
             if (persistenceService != null && reviewId != null) {
                 persistenceService.markCompleted(reviewId, summary, totalFindings, postedCommentsCount);
+            }
+
+            // Evaluate and persist quality gate for completed review
+            if (qualityGateService != null && reviewId != null) {
+                try {
+                    qualityGateService.evaluateAndSave(reviewId, effectivePolicy);
+                } catch (Exception qgEx) {
+                    log.warn("Quality gate evaluation failed for reviewId={}: {}", reviewId, qgEx.getMessage(), qgEx);
+                }
             }
 
             long duration = System.currentTimeMillis() - startTime;

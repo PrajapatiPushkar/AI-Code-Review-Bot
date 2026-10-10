@@ -50,4 +50,12 @@ public class RuleRegistry {
     public int size() {
         return rulesById.size();
     }
+
+    public java.util.Set<String> getRegisteredRuleIds() {
+        return rulesById.keySet();
+    }
+
+    public boolean isSupportedRuleId(String ruleId) {
+        return ruleId != null && rulesById.containsKey(ruleId);
+    }
 }

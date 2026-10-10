@@ -8,6 +8,7 @@ import RepositoryGrid from '../components/repositories/RepositoryGrid';
 import RepositorySkeleton from '../components/repositories/RepositorySkeleton';
 import EmptyState from '../components/EmptyState';
 import ErrorMessage from '../components/ErrorMessage';
+import RepositoryPolicyModal from '../components/repositories/RepositoryPolicyModal';
 
 export const RepositoriesPage = () => {
   const toast = useToast();
@@ -27,6 +28,7 @@ export const RepositoriesPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('ALL'); // 'ALL' | 'PUBLIC' | 'PRIVATE'
   const [sortOption, setSortOption] = useState('name-asc'); // 'name-asc' | 'name-desc'
+  const [policyModalRepo, setPolicyModalRepo] = useState(null);
 
   // Ref to track latest requested installation to prevent stale race conditions
   const activeFetchIdRef = useRef(null);
@@ -361,11 +363,19 @@ export const RepositoriesPage = () => {
                   repositories={filteredRepositories}
                   installationId={activeInstallationId}
                   installationAccount={activeInstallationAccount}
+                  onOpenPolicy={setPolicyModalRepo}
                 />
               )}
             </div>
           )}
         </>
+      )}
+
+      {policyModalRepo && (
+        <RepositoryPolicyModal
+          repository={policyModalRepo}
+          onClose={() => setPolicyModalRepo(null)}
+        />
       )}
     </div>
   );

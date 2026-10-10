@@ -4,7 +4,8 @@ import RepositoryCard from './RepositoryCard';
 export const RepositoryGrid = ({
   repositories = [],
   installationId,
-  installationAccount
+  installationAccount,
+  onOpenPolicy
 }) => {
   if (!repositories || repositories.length === 0) {
     return null;
@@ -18,6 +19,7 @@ export const RepositoryGrid = ({
           repository={repo}
           installationId={installationId}
           installationAccount={installationAccount}
+          onOpenPolicy={onOpenPolicy}
         />
       ))}
     </div>

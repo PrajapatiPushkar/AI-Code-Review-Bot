@@ -14,4 +14,10 @@ public interface RepositoryRepository extends JpaRepository<com.pushkar.coderevi
     List<com.pushkar.codereview.repository.Repository> findByUserId(Long userId);
 
     Optional<com.pushkar.codereview.repository.Repository> findByIdAndUserId(Long id, Long userId);
+
+    Optional<com.pushkar.codereview.repository.Repository> findByGithubRepositoryId(Long githubRepositoryId);
+
+    Optional<com.pushkar.codereview.repository.Repository> findByFullNameIgnoreCase(String fullName);
+
+    List<com.pushkar.codereview.repository.Repository> findByNameIgnoreCase(String name);
 }

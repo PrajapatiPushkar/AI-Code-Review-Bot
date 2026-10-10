@@ -9,6 +9,7 @@ import ReviewSummary from '../components/review-detail/ReviewSummary';
 import ReviewActions from '../components/review-detail/ReviewActions';
 import ReviewDetailsSkeleton from '../components/review-detail/ReviewDetailsSkeleton';
 import ReviewIntelligenceSummary from '../components/review-intelligence/ReviewIntelligenceSummary';
+import QualityGateCard from '../components/review-detail/QualityGateCard';
 
 const ReviewDetailsPage = () => {
   const { id } = useParams();
@@ -204,6 +205,12 @@ const ReviewDetailsPage = () => {
         isCompleted={isCompleted}
         pollCount={pollCount}
         githubPrUrl={githubPrUrl}
+      />
+
+      {/* Quality Gate Evaluation */}
+      <QualityGateCard
+        reviewId={review.id || id}
+        reviewStatus={review.status}
       />
 
       {/* Top Metrics Row */}

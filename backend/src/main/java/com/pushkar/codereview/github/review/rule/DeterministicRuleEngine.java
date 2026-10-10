@@ -31,6 +31,19 @@ public class DeterministicRuleEngine {
      * @return list of deterministic rule findings
      */
     public List<RuleFinding> evaluate(ReviewAnalysisContext context) {
+        return evaluate(context, null);
+    }
+
+    /**
+     * Evaluates registered deterministic rules that are in the enabledRuleIds set.
+     * If enabledRuleIds is null, all registered rules are evaluated.
+     * If enabledRuleIds is empty, no rules are evaluated and an empty list is returned.
+     *
+     * @param context review analysis context containing changed files
+     * @param enabledRuleIds set of rule IDs that are enabled, or null to evaluate all registered rules
+     * @return list of deterministic rule findings
+     */
+    public List<RuleFinding> evaluate(ReviewAnalysisContext context, java.util.Set<String> enabledRuleIds) {
         if (context == null || ruleRegistry == null) {
             return List.of();
         }
@@ -38,10 +51,14 @@ public class DeterministicRuleEngine {
         List<RuleFinding> findings = new ArrayList<>();
         List<CodeQualityRule> rules = ruleRegistry.getRules();
 
-        log.debug("Evaluating {} deterministic rules for repository={}, PR #{}",
-                rules.size(), context.getRepository(), context.getPullRequestNumber());
+        log.debug("Evaluating deterministic rules for repository={}, PR #{} with enabledRuleIds={}",
+                context.getRepository(), context.getPullRequestNumber(), enabledRuleIds);
 
         for (CodeQualityRule rule : rules) {
+            if (enabledRuleIds != null && !enabledRuleIds.contains(rule.getRuleId())) {
+                log.debug("Skipping disabled rule '{}' for repository={}", rule.getRuleId(), context.getRepository());
+                continue;
+            }
             try {
                 List<RuleFinding> ruleResults = rule.evaluate(context);
                 if (ruleResults != null && !ruleResults.isEmpty()) {
@@ -63,7 +80,14 @@ public class DeterministicRuleEngine {
      * Evaluates rules and directly converts results to ReviewFinding domain objects.
      */
     public List<ReviewFinding> evaluateToReviewFindings(ReviewAnalysisContext context) {
-        List<RuleFinding> ruleFindings = evaluate(context);
+        return evaluateToReviewFindings(context, null);
+    }
+
+    /**
+     * Evaluates enabled rules and converts results to ReviewFinding domain objects.
+     */
+    public List<ReviewFinding> evaluateToReviewFindings(ReviewAnalysisContext context, java.util.Set<String> enabledRuleIds) {
+        List<RuleFinding> ruleFindings = evaluate(context, enabledRuleIds);
         return ruleFindings.stream().map(RuleFinding::toReviewFinding).toList();
     }
 }
