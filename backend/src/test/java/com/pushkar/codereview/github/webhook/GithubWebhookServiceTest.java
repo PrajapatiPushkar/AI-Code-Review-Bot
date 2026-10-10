@@ -1,19 +1,31 @@
 package com.pushkar.codereview.github.webhook;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pushkar.codereview.exception.ResourceNotFoundException;
 import com.pushkar.codereview.github.GithubInstallation;
 import com.pushkar.codereview.github.GithubInstallationRepository;
 import com.pushkar.codereview.github.review.GithubPullRequestCodeReviewService;
 import com.pushkar.codereview.github.review.dto.CodeReviewExecutionResult;
+import com.pushkar.codereview.github.review.persistence.CodeReview;
+import com.pushkar.codereview.github.review.persistence.CodeReviewPersistenceService;
+import com.pushkar.codereview.github.review.persistence.CodeReviewStatus;
 import com.pushkar.codereview.github.webhook.dto.GithubWebhookResponse;
+import com.pushkar.codereview.github.webhook.dto.WebhookDeliveryDetailResponse;
+import com.pushkar.codereview.github.webhook.dto.WebhookDeliveryItemResponse;
+import com.pushkar.codereview.github.webhook.dto.WebhookDeliverySummaryResponse;
 import com.pushkar.codereview.repository.Repository;
 import com.pushkar.codereview.repository.RepositoryRepository;
+import com.pushkar.codereview.security.CurrentUserService;
 import com.pushkar.codereview.user.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -27,8 +39,11 @@ class GithubWebhookServiceTest {
     private InMemoryInstallationRepository installationRepository;
     private InMemoryRepositoryRepository repositoryRepository;
     private StubCodeReviewService codeReviewService;
+    private StubCurrentUserService currentUserService;
+    private StubCodeReviewPersistenceService persistenceService;
     private GithubWebhookService webhookService;
     private User testUser;
+    private User otherUser;
     private GithubInstallation testInstallation;
     private Repository testRepo;
 
@@ -38,19 +53,30 @@ class GithubWebhookServiceTest {
         installationRepository = new InMemoryInstallationRepository();
         repositoryRepository = new InMemoryRepositoryRepository();
         codeReviewService = new StubCodeReviewService();
+        currentUserService = new StubCurrentUserService();
+        persistenceService = new StubCodeReviewPersistenceService();
+
+        testUser = new User();
+        testUser.setId(1L);
+        testUser.setUsername("testuser");
+        testUser.setRole("USER");
+
+        otherUser = new User();
+        otherUser.setId(2L);
+        otherUser.setUsername("otheruser");
+        otherUser.setRole("USER");
+
+        currentUserService.setCurrentUser(testUser);
 
         webhookService = new GithubWebhookService(
                 deliveryRepository,
                 installationRepository,
                 repositoryRepository,
                 codeReviewService,
-                new ObjectMapper()
+                currentUserService,
+                new ObjectMapper(),
+                persistenceService
         );
-
-        testUser = new User();
-        testUser.setId(1L);
-        testUser.setUsername("testuser");
-        testUser.setRole("USER");
 
         testInstallation = new GithubInstallation(testUser, 12345L, "octocat", "User");
         testInstallation.setVerified(true);
@@ -107,6 +133,8 @@ class GithubWebhookServiceTest {
         assertThat(saved.getRepository()).isEqualTo("octocat/hello-world");
         assertThat(saved.getPullRequestNumber()).isEqualTo(42);
         assertThat(saved.getCommitSha()).isEqualTo("abc123commit");
+        assertThat(saved.getUser()).isEqualTo(testUser);
+        assertThat(saved.getInstallationId()).isEqualTo(12345L);
     }
 
     @Test
@@ -186,25 +214,21 @@ class GithubWebhookServiceTest {
         byte[] payload = createPrPayload("opened", false, "open");
         codeReviewService.setResultToReturn(new CodeReviewExecutionResult(200L, 12345L, "octocat", "hello-world", 42L, "IN_PROGRESS", "", 0, 0, true, "abc"));
 
-        // First delivery
         webhookService.processWebhook("deliv-dup", "pull_request", payload);
         assertThat(codeReviewService.getExecutionCount()).isEqualTo(1);
 
-        // Second delivery with same delivery ID
         GithubWebhookResponse duplicateResponse = webhookService.processWebhook("deliv-dup", "pull_request", payload);
 
         assertThat(duplicateResponse.getStatus()).isEqualTo("DUPLICATE");
         assertThat(duplicateResponse.getReviewId()).isEqualTo(200L);
-        assertThat(codeReviewService.getExecutionCount()).isEqualTo(1); // No new execution!
+        assertThat(codeReviewService.getExecutionCount()).isEqualTo(1);
     }
 
     @Test
     void testProcessWebhook_ConcurrentDuplicateDelivery_HandledGracefully() {
         byte[] payload = createPrPayload("opened", false, "open");
 
-        // Simulate concurrent insert collision via custom flag
         deliveryRepository.setThrowDataIntegrityViolationOnce(true);
-        // Pre-populate winning delivery
         GithubWebhookDelivery winner = new GithubWebhookDelivery("deliv-race", "pull_request", "opened", "octocat/hello-world", 42, "abc");
         winner.setCodeReviewId(777L);
         winner.setStatus(WebhookDeliveryStatus.COMPLETED);
@@ -292,7 +316,6 @@ class GithubWebhookServiceTest {
     @Test
     void testProcessWebhook_DuplicateShaReview_ReturnsDuplicateStatus() {
         byte[] payload = createPrPayload("opened", false, "open");
-        // Simulated existing review returned by CodeReviewService
         codeReviewService.setResultToReturn(new CodeReviewExecutionResult(500L, 12345L, "octocat", "hello-world", 42L, "COMPLETED", "Previous review", 2, 1, false, "abc123commit"));
 
         GithubWebhookResponse response = webhookService.processWebhook("deliv-dup-sha", "pull_request", payload);
@@ -303,20 +326,257 @@ class GithubWebhookServiceTest {
     }
 
     @Test
-    void testProcessWebhook_ExecutionFailure_MarksDeliveryFailedAndRethrows() {
+    void testProcessWebhook_TransientFailure_MarksRetryableAndSetsNextRetry() {
         byte[] payload = createPrPayload("opened", false, "open");
-        codeReviewService.setExceptionToThrow(new RuntimeException("Simulated AI Review Failure"));
+        codeReviewService.setExceptionToThrow(new com.pushkar.codereview.exception.GithubApiException("Temporary 503 from GitHub", 503));
 
-        assertThatThrownBy(() -> webhookService.processWebhook("deliv-fail", "pull_request", payload))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Simulated AI Review Failure");
+        assertThatThrownBy(() -> webhookService.processWebhook("deliv-transient", "pull_request", payload))
+                .isInstanceOf(com.pushkar.codereview.exception.GithubApiException.class);
 
-        GithubWebhookDelivery saved = deliveryRepository.findByDeliveryId("deliv-fail").orElseThrow();
+        GithubWebhookDelivery saved = deliveryRepository.findByDeliveryId("deliv-transient").orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(WebhookDeliveryStatus.FAILED);
-        assertThat(saved.getErrorMessage()).contains("Simulated AI Review Failure");
+        assertThat(saved.getErrorCategory()).isEqualTo("TRANSIENT");
+        assertThat(saved.isRetryable()).isTrue();
+        assertThat(saved.getNextRetryAt()).isNotNull();
+    }
+
+    @Test
+    void testProcessWebhook_PermanentFailure_NotMarkedRetryable() {
+        byte[] payload = createPrPayload("opened", false, "open");
+        codeReviewService.setExceptionToThrow(new IllegalArgumentException("Invalid PR configuration"));
+
+        assertThatThrownBy(() -> webhookService.processWebhook("deliv-perm", "pull_request", payload))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        GithubWebhookDelivery saved = deliveryRepository.findByDeliveryId("deliv-perm").orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(WebhookDeliveryStatus.FAILED);
+        assertThat(saved.getErrorCategory()).isEqualTo("PERMANENT");
+        assertThat(saved.isRetryable()).isFalse();
+        assertThat(saved.getNextRetryAt()).isNull();
+    }
+
+    // --- Retry Operations Tests ---
+
+    @Test
+    void testRetryDelivery_EligibleFailedDelivery_SuccessfullyRetried() {
+        GithubWebhookDelivery delivery = new GithubWebhookDelivery("deliv-to-retry", "pull_request", "opened", "octocat/hello-world", 42, "sha-retry", 12345L, testUser);
+        delivery.markFailed("TRANSIENT", "Temporary network failure", true, 60);
+        deliveryRepository.save(delivery);
+
+        codeReviewService.setResultToReturn(new CodeReviewExecutionResult(901L, 12345L, "octocat", "hello-world", 42L, "IN_PROGRESS", "", 0, 0, true, "sha-retry"));
+
+        WebhookDeliveryItemResponse response = webhookService.retryDelivery("deliv-to-retry");
+
+        assertThat(response.getStatus()).isEqualTo(WebhookDeliveryStatus.COMPLETED);
+        assertThat(response.getCodeReviewId()).isEqualTo(901L);
+        assertThat(response.getAttemptCount()).isEqualTo(2);
+
+        GithubWebhookDelivery updated = deliveryRepository.findByDeliveryId("deliv-to-retry").orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.COMPLETED);
+        assertThat(updated.getCodeReviewId()).isEqualTo(901L);
+    }
+
+    @Test
+    void testRetryDelivery_CompletedDelivery_ThrowsIllegalArgumentException() {
+        GithubWebhookDelivery delivery = new GithubWebhookDelivery("deliv-completed", "pull_request", "opened", "octocat/hello-world", 42, "sha-c", 12345L, testUser);
+        delivery.markCompleted(123L);
+        deliveryRepository.save(delivery);
+
+        assertThatThrownBy(() -> webhookService.retryDelivery("deliv-completed"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Completed deliveries cannot be retried");
+    }
+
+    @Test
+    void testRetryDelivery_IgnoredDelivery_ThrowsIllegalArgumentException() {
+        GithubWebhookDelivery delivery = new GithubWebhookDelivery("deliv-ignored", "pull_request", "closed", "octocat/hello-world", 42, "sha-i", 12345L, testUser);
+        delivery.markIgnored("Unsupported action");
+        deliveryRepository.save(delivery);
+
+        assertThatThrownBy(() -> webhookService.retryDelivery("deliv-ignored"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Ignored events cannot be retried");
+    }
+
+    @Test
+    void testRetryDelivery_UnauthorizedUser_ThrowsResourceNotFoundException() {
+        GithubWebhookDelivery delivery = new GithubWebhookDelivery("deliv-other-user", "pull_request", "opened", "other/repo", 42, "sha-o", 12345L, otherUser);
+        delivery.markFailed("TRANSIENT", "Failed", true, 60);
+        deliveryRepository.save(delivery);
+
+        // testUser attempts to retry otherUser's delivery
+        assertThatThrownBy(() -> webhookService.retryDelivery("deliv-other-user"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Webhook delivery not found");
+    }
+
+    @Test
+    void testRecoverStaleProcessingDeliveries_RecoversStaleLeases() {
+        GithubWebhookDelivery staleDelivery = new GithubWebhookDelivery("deliv-stale", "pull_request", "opened", "octocat/hello-world", 42, "sha-s", 12345L, testUser);
+        staleDelivery.setStatus(WebhookDeliveryStatus.PROCESSING);
+        staleDelivery.setStartedAt(Instant.now().minusSeconds(600)); // 10 minutes ago
+        deliveryRepository.save(staleDelivery);
+
+        int recovered = webhookService.recoverStaleProcessingDeliveries(300);
+
+        assertThat(recovered).isEqualTo(1);
+        GithubWebhookDelivery updated = deliveryRepository.findByDeliveryId("deliv-stale").orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.FAILED);
+        assertThat(updated.getErrorCategory()).isEqualTo("TIMEOUT");
+        assertThat(updated.isRetryable()).isTrue();
+    }
+
+    @Test
+    void testRecoverStaleProcessingDeliveries_WhenReviewStillInProgress_RenewsLeaseAndDoesNotFail() {
+        GithubWebhookDelivery staleDelivery = new GithubWebhookDelivery("deliv-active-rev", "pull_request", "opened", "octocat/hello-world", 42, "sha-active", 12345L, testUser);
+        staleDelivery.setStatus(WebhookDeliveryStatus.PROCESSING);
+        Instant tenMinutesAgo = Instant.now().minusSeconds(600);
+        staleDelivery.setStartedAt(tenMinutesAgo);
+        staleDelivery.setCodeReviewId(777L);
+        deliveryRepository.save(staleDelivery);
+
+        CodeReview inProgressReview = new CodeReview(12345L, "octocat", "hello-world", 42, testUser, "sha-active");
+        inProgressReview.setId(777L);
+        inProgressReview.setStatus(CodeReviewStatus.IN_PROGRESS);
+        persistenceService.addReview(inProgressReview);
+
+        int recovered = webhookService.recoverStaleProcessingDeliveries(300);
+
+        assertThat(recovered).isEqualTo(1);
+        GithubWebhookDelivery updated = deliveryRepository.findByDeliveryId("deliv-active-rev").orElseThrow();
+        // Concurrency protection: original worker still active -> lease renewed, NOT failed!
+        assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.PROCESSING);
+        assertThat(updated.getStartedAt()).isAfter(tenMinutesAgo);
+    }
+
+    @Test
+    void testRecoverStaleProcessingDeliveries_WhenReviewCompleted_SyncsDeliveryToCompleted() {
+        GithubWebhookDelivery staleDelivery = new GithubWebhookDelivery("deliv-done-rev", "pull_request", "opened", "octocat/hello-world", 42, "sha-done", 12345L, testUser);
+        staleDelivery.setStatus(WebhookDeliveryStatus.PROCESSING);
+        staleDelivery.setStartedAt(Instant.now().minusSeconds(600));
+        staleDelivery.setCodeReviewId(888L);
+        deliveryRepository.save(staleDelivery);
+
+        CodeReview completedReview = new CodeReview(12345L, "octocat", "hello-world", 42, testUser, "sha-done");
+        completedReview.setId(888L);
+        completedReview.setStatus(CodeReviewStatus.COMPLETED);
+        persistenceService.addReview(completedReview);
+
+        int recovered = webhookService.recoverStaleProcessingDeliveries(300);
+
+        assertThat(recovered).isEqualTo(1);
+        GithubWebhookDelivery updated = deliveryRepository.findByDeliveryId("deliv-done-rev").orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.COMPLETED);
+        assertThat(updated.getCodeReviewId()).isEqualTo(888L);
+    }
+
+    @Test
+    void testRecoverStaleProcessingDeliveries_CrashedBeforeDispatch_MaxAttemptsBounded() {
+        GithubWebhookDelivery staleDelivery = new GithubWebhookDelivery("deliv-crashed-max", "pull_request", "opened", "octocat/hello-world", 42, "sha-max", 12345L, testUser);
+        staleDelivery.setStatus(WebhookDeliveryStatus.PROCESSING);
+        staleDelivery.setStartedAt(Instant.now().minusSeconds(600));
+        staleDelivery.setAttemptCount(3);
+        staleDelivery.setMaxAttempts(3);
+        deliveryRepository.save(staleDelivery);
+
+        int recovered = webhookService.recoverStaleProcessingDeliveries(300);
+
+        assertThat(recovered).isEqualTo(1);
+        GithubWebhookDelivery updated = deliveryRepository.findByDeliveryId("deliv-crashed-max").orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.FAILED);
+        assertThat(updated.getErrorCategory()).isEqualTo("TIMEOUT");
+        assertThat(updated.isRetryable()).isFalse();
+        assertThat(updated.getNextRetryAt()).isNull();
+    }
+
+    @Test
+    void testFindAndAuthorizeDelivery_UnownedDelivery_ThrowsResourceNotFoundForNonAdmin() {
+        GithubWebhookDelivery unowned = new GithubWebhookDelivery("deliv-unowned", "pull_request", "opened", "octocat/hello-world", 42, "sha-u", 12345L, null);
+        unowned.markFailed("TRANSIENT", "Network err", true, 60);
+        deliveryRepository.save(unowned);
+
+        // testUser is non-admin
+        assertThatThrownBy(() -> webhookService.getDeliveryDetail("deliv-unowned"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Webhook delivery not found");
+
+        assertThatThrownBy(() -> webhookService.retryDelivery("deliv-unowned"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Webhook delivery not found");
+    }
+
+    @Test
+    void testClaimForRetry_MaxAttemptsReached_AtomicallyRejectsClaim() {
+        GithubWebhookDelivery maxReached = new GithubWebhookDelivery("deliv-max-claim", "pull_request", "opened", "octocat/hello-world", 42, "sha-mc", 12345L, testUser);
+        maxReached.markFailed("PERMANENT", "Failed", false, null);
+        maxReached.setAttemptCount(3);
+        maxReached.setMaxAttempts(3);
+        deliveryRepository.save(maxReached);
+
+        Instant now = Instant.now();
+        Instant staleThreshold = now.minusSeconds(300);
+        int claimed = deliveryRepository.claimForRetry(maxReached.getId(), now, staleThreshold);
+
+        assertThat(claimed).isEqualTo(0);
+    }
+
+    @Test
+    void testGetSummary_CalculatesAccurateCounts() {
+        GithubWebhookDelivery d1 = new GithubWebhookDelivery("d1", "pull_request", "opened", "octocat/hello-world", 1, "sha1", 12345L, testUser);
+        d1.markCompleted(1L);
+        deliveryRepository.save(d1);
+
+        GithubWebhookDelivery d2 = new GithubWebhookDelivery("d2", "pull_request", "opened", "octocat/hello-world", 2, "sha2", 12345L, testUser);
+        d2.markFailed("PERMANENT", "Error", false, null);
+        deliveryRepository.save(d2);
+
+        GithubWebhookDelivery d3 = new GithubWebhookDelivery("d3", "pull_request", "opened", "octocat/hello-world", 3, "sha3", 12345L, testUser);
+        d3.markIgnored("Draft PR");
+        deliveryRepository.save(d3);
+
+        WebhookDeliverySummaryResponse summary = webhookService.getSummary();
+
+        assertThat(summary.getTotalDeliveries()).isEqualTo(3);
+        assertThat(summary.getCompletedDeliveries()).isEqualTo(1);
+        assertThat(summary.getFailedDeliveries()).isEqualTo(1);
+        assertThat(summary.getIgnoredDeliveries()).isEqualTo(1);
+        assertThat(summary.getProcessingDeliveries()).isEqualTo(0);
+    }
+
+    @Test
+    void testGetDeliveryDetail_AuthorizedUser_ReturnsFullDetail() {
+        GithubWebhookDelivery d = new GithubWebhookDelivery("d-detail", "pull_request", "opened", "octocat/hello-world", 1, "sha-det", 12345L, testUser);
+        d.markCompleted(77L);
+        deliveryRepository.save(d);
+
+        WebhookDeliveryDetailResponse detail = webhookService.getDeliveryDetail("d-detail");
+
+        assertThat(detail.getDeliveryId()).isEqualTo("d-detail");
+        assertThat(detail.getRepository()).isEqualTo("octocat/hello-world");
+        assertThat(detail.getCodeReviewId()).isEqualTo(77L);
+        assertThat(detail.getStatus()).isEqualTo(WebhookDeliveryStatus.COMPLETED);
     }
 
     // --- In-Memory Test Helpers ---
+
+    private static class StubCurrentUserService extends CurrentUserService {
+        private User currentUser;
+        private boolean authenticated = true;
+
+        public StubCurrentUserService() {
+            super(null);
+        }
+
+        public void setCurrentUser(User user) {
+            this.currentUser = user;
+            this.authenticated = (user != null);
+        }
+
+        @Override public boolean isAuthenticated() { return authenticated; }
+        @Override public User getCurrentUser() { return currentUser; }
+        @Override public Long getCurrentUserId() { return currentUser != null ? currentUser.getId() : null; }
+        @Override public boolean hasRole(String role) { return currentUser != null && role.equalsIgnoreCase(currentUser.getRole()); }
+    }
 
     private static class InMemoryDeliveryRepository implements GithubWebhookDeliveryRepository {
         private final List<GithubWebhookDelivery> list = new ArrayList<>();
@@ -333,8 +593,79 @@ class GithubWebhookServiceTest {
         }
 
         @Override
+        public Optional<GithubWebhookDelivery> findByDeliveryIdAndUserId(String deliveryId, Long userId) {
+            return list.stream()
+                    .filter(d -> d.getDeliveryId().equals(deliveryId) && d.getUser() != null && d.getUser().getId().equals(userId))
+                    .findFirst();
+        }
+
+        @Override
         public boolean existsByDeliveryId(String deliveryId) {
             return list.stream().anyMatch(d -> d.getDeliveryId().equals(deliveryId));
+        }
+
+        @Override
+        public Page<GithubWebhookDelivery> findByUserId(Long userId, Pageable pageable) {
+            List<GithubWebhookDelivery> filtered = list.stream()
+                    .filter(d -> d.getUser() != null && d.getUser().getId().equals(userId))
+                    .toList();
+            return new org.springframework.data.domain.PageImpl<>(filtered, pageable, filtered.size());
+        }
+
+        @Override
+        public long countByUserId(Long userId) {
+            return list.stream().filter(d -> d.getUser() != null && d.getUser().getId().equals(userId)).count();
+        }
+
+        @Override
+        public long countByUserIdAndStatus(Long userId, WebhookDeliveryStatus status) {
+            return list.stream()
+                    .filter(d -> d.getUser() != null && d.getUser().getId().equals(userId) && d.getStatus() == status)
+                    .count();
+        }
+
+        @Override
+        public long countByStatus(WebhookDeliveryStatus status) {
+            return list.stream().filter(d -> d.getStatus() == status).count();
+        }
+
+        @Override
+        public List<GithubWebhookDelivery> findStaleProcessingDeliveries(Instant threshold) {
+            return list.stream()
+                    .filter(d -> d.getStatus() == WebhookDeliveryStatus.PROCESSING &&
+                            ((d.getStartedAt() != null && d.getStartedAt().isBefore(threshold)) ||
+                                    (d.getStartedAt() == null && d.getReceivedAt() != null && d.getReceivedAt().isBefore(threshold))))
+                    .toList();
+        }
+
+        @Override
+        public List<GithubWebhookDelivery> findEligibleScheduledRetries(Instant now) {
+            return list.stream()
+                    .filter(d -> d.getStatus() == WebhookDeliveryStatus.FAILED && d.isRetryable() &&
+                            d.getNextRetryAt() != null && !d.getNextRetryAt().isAfter(now) &&
+                            d.getAttemptCount() < d.getMaxAttempts())
+                    .toList();
+        }
+
+        @Override
+        public int claimForRetry(Long id, Instant now, Instant staleThreshold) {
+            for (GithubWebhookDelivery d : list) {
+                if (d.getId().equals(id)) {
+                    if (d.getAttemptCount() < d.getMaxAttempts() &&
+                            (d.getStatus() == WebhookDeliveryStatus.FAILED ||
+                            (d.getStatus() == WebhookDeliveryStatus.PROCESSING &&
+                                    (d.getStartedAt() != null && d.getStartedAt().isBefore(staleThreshold))))) {
+                        d.markClaimedForRetry();
+                        return 1;
+                    }
+                }
+            }
+            return 0;
+        }
+
+        @Override
+        public Page<GithubWebhookDelivery> findAll(Specification<GithubWebhookDelivery> spec, Pageable pageable) {
+            return new org.springframework.data.domain.PageImpl<>(list, pageable, list.size());
         }
 
         @Override
@@ -383,6 +714,13 @@ class GithubWebhookServiceTest {
         @Override public <S extends GithubWebhookDelivery> List<S> saveAll(Iterable<S> entities) { return List.of(); }
         @Override public List<GithubWebhookDelivery> findAll(org.springframework.data.domain.Sort sort) { return List.of(); }
         @Override public org.springframework.data.domain.Page<GithubWebhookDelivery> findAll(org.springframework.data.domain.Pageable pageable) { return null; }
+        @Override public List<GithubWebhookDelivery> findAll(Specification<GithubWebhookDelivery> spec) { return list; }
+        @Override public List<GithubWebhookDelivery> findAll(Specification<GithubWebhookDelivery> spec, org.springframework.data.domain.Sort sort) { return list; }
+        @Override public Optional<GithubWebhookDelivery> findOne(Specification<GithubWebhookDelivery> spec) { return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0)); }
+        @Override public long count(Specification<GithubWebhookDelivery> spec) { return list.size(); }
+        @Override public boolean exists(Specification<GithubWebhookDelivery> spec) { return !list.isEmpty(); }
+        @Override public long delete(Specification<GithubWebhookDelivery> spec) { return 0; }
+        @Override public <S extends GithubWebhookDelivery, R> R findBy(Specification<GithubWebhookDelivery> spec, java.util.function.Function<org.springframework.data.repository.query.FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { return null; }
     }
 
     private static class InMemoryInstallationRepository implements GithubInstallationRepository {
@@ -525,6 +863,32 @@ class GithubWebhookServiceTest {
                 return resultToReturn;
             }
             return new CodeReviewExecutionResult(999L, requestedInstallationId, owner, repository, pullRequestNumber, "IN_PROGRESS", "", 0, 0, true, commitSha);
+        }
+    }
+
+    private static class StubCodeReviewPersistenceService extends CodeReviewPersistenceService {
+        private final List<CodeReview> reviews = new ArrayList<>();
+
+        public StubCodeReviewPersistenceService() {
+            super(null);
+        }
+
+        public void addReview(CodeReview review) {
+            reviews.add(review);
+        }
+
+        @Override
+        public Optional<CodeReview> findById(Long reviewId) {
+            return reviews.stream().filter(r -> r.getId().equals(reviewId)).findFirst();
+        }
+
+        @Override
+        public Optional<CodeReview> findDuplicateReview(Long userId, Long installationId, String owner, String repositoryName, Integer pullRequestNumber, String commitSha) {
+            return reviews.stream()
+                    .filter(r -> r.getRepository().equalsIgnoreCase(repositoryName)
+                            && r.getPullRequestNumber().equals(pullRequestNumber)
+                            && (commitSha == null || commitSha.equals(r.getCommitSha())))
+                    .findFirst();
         }
     }
 }

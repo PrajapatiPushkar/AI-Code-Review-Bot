@@ -94,8 +94,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/register",
                                 "/auth/login",
                                 "/api/v1/auth/login",
-                                "/webhooks/**",
-                                "/api/v1/webhooks/**"
+                                "/webhooks/github",
+                                "/api/v1/webhooks/github"
                         ).permitAll()
                         .requestMatchers(
                                 "/code-reviews/**",
@@ -105,7 +105,9 @@ public class SecurityConfig {
                                 "/analytics/**",
                                 "/api/v1/analytics/**",
                                 "/repositories/**",
-                                "/api/v1/repositories/**"
+                                "/api/v1/repositories/**",
+                                "/webhooks/deliveries/**",
+                                "/api/v1/webhooks/deliveries/**"
                         ).hasAnyRole("USER", "ADMIN", "DEVELOPER")
                         .anyRequest().authenticated()
                 );

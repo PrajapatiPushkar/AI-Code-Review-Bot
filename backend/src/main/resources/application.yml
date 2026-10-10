@@ -69,6 +69,16 @@ github:
   webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
   api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
 
+webhook:
+  retry:
+    max-attempts: ${WEBHOOK_RETRY_MAX_ATTEMPTS:3}
+    initial-interval-ms: ${WEBHOOK_RETRY_INITIAL_INTERVAL_MS:60000}
+    multiplier: ${WEBHOOK_RETRY_MULTIPLIER:2.0}
+    stale-threshold-ms: ${WEBHOOK_RETRY_STALE_THRESHOLD_MS:300000}
+    scheduler:
+      enabled: ${WEBHOOK_RETRY_SCHEDULER_ENABLED:false}
+      fixed-delay-ms: ${WEBHOOK_RETRY_SCHEDULER_FIXED_DELAY_MS:60000}
+
 gemini:
   api-key: ${GEMINI_API_KEY:}
   model: ${GEMINI_MODEL:gemini-3.6-flash}

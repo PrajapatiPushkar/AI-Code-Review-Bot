@@ -15,6 +15,7 @@ import RepositoriesPage from './pages/RepositoriesPage';
 import FindingsExplorerPlaceholderPage from './pages/FindingsExplorerPlaceholderPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
+import WebhookDashboardPage from './pages/WebhookDashboardPage';
 
 function App() {
   return (
@@ -42,6 +43,7 @@ function App() {
               <Route path="/reviews/:id/findings" element={<ReviewFindingsPage />} />
               <Route path="/findings" element={<FindingsExplorerPlaceholderPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/webhooks" element={<WebhookDashboardPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
 
