@@ -46,7 +46,23 @@ class ActuatorSecurityTest {
     private MockMvc mockMvc;
 
     @Test
-    void testSensitiveActuatorEndpoints_AreNotExposed() throws Exception {
+    void testSensitiveActuatorEndpoints_AreNotExposed_Anonymous() throws Exception {
+        mockMvc.perform(get("/actuator/env"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/beans"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/configprops"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/mappings"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "USER")
+    void testSensitiveActuatorEndpoints_AreNotExposed_Authenticated() throws Exception {
         mockMvc.perform(get("/actuator/env"))
                 .andExpect(status().isNotFound());
 
@@ -65,9 +81,29 @@ class ActuatorSecurityTest {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/actuator/info"))
+        mockMvc.perform(get("/actuator/health/liveness"))
                 .andExpect(status().isOk());
 
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testMetricsAndPrometheus_RequireAuthentication() throws Exception {
+        // Anonymous calls must be rejected
+        mockMvc.perform(get("/actuator/metrics"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "USER")
+    void testMetricsAndPrometheus_AccessibleWhenAuthenticated() throws Exception {
         mockMvc.perform(get("/actuator/metrics"))
                 .andExpect(status().isOk());
     }

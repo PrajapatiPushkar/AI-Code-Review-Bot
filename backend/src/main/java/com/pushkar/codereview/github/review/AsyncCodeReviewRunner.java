@@ -103,6 +103,10 @@ public class AsyncCodeReviewRunner {
         try {
             ReviewInput reviewInput = pullRequestReviewService.getReviewInput(installationId, owner, repository, pullRequestNumber);
             ReviewResult aiReviewResult = aiReviewService.review(reviewInput);
+            int aiFindingsCount = (aiReviewResult != null && aiReviewResult.getFindings() != null) ? aiReviewResult.getFindings().size() : 0;
+            if (codeReviewMetrics != null) {
+                codeReviewMetrics.recordFindingsBySource("ai", aiFindingsCount);
+            }
 
             String commitId = null;
             if (persistenceService != null && reviewId != null) {
@@ -136,6 +140,10 @@ public class AsyncCodeReviewRunner {
                             com.pushkar.codereview.github.review.rule.ReviewAnalysisContext.fromReviewInput(reviewInput, commitId);
                     List<com.pushkar.codereview.github.review.rule.RuleFinding> ruleFindings =
                             deterministicRuleEngine.evaluate(analysisContext, enabledRules);
+                    int ruleFindingsCount = (ruleFindings != null) ? ruleFindings.size() : 0;
+                    if (codeReviewMetrics != null) {
+                        codeReviewMetrics.recordFindingsBySource("deterministic_rules", ruleFindingsCount);
+                    }
                     reviewResult = findingMerger.merge(aiReviewResult, ruleFindings);
                 } catch (Exception ruleEx) {
                     log.warn("Deterministic rule evaluation failed for reviewId={}, falling back to AI findings: {}",
@@ -162,10 +170,22 @@ public class AsyncCodeReviewRunner {
             // Evaluate and persist quality gate for completed review
             if (qualityGateService != null && reviewId != null) {
                 try {
-                    qualityGateService.evaluateAndSave(reviewId, effectivePolicy);
+                    var gateOpt = qualityGateService.evaluateAndSave(reviewId, effectivePolicy);
+                    if (codeReviewMetrics != null) {
+                        if (gateOpt.isPresent()) {
+                            codeReviewMetrics.recordQualityGateOutcome(gateOpt.get().getStatus().name());
+                        } else {
+                            codeReviewMetrics.recordQualityGateOutcome("NOT_EVALUATED");
+                        }
+                    }
                 } catch (Exception qgEx) {
                     log.warn("Quality gate evaluation failed for reviewId={}: {}", reviewId, qgEx.getMessage(), qgEx);
+                    if (codeReviewMetrics != null) {
+                        codeReviewMetrics.recordQualityGateOutcome("NOT_EVALUATED");
+                    }
                 }
+            } else if (codeReviewMetrics != null) {
+                codeReviewMetrics.recordQualityGateOutcome("NOT_EVALUATED");
             }
 
             long duration = System.currentTimeMillis() - startTime;
@@ -173,6 +193,7 @@ public class AsyncCodeReviewRunner {
                 codeReviewMetrics.recordFindings(totalFindings);
                 codeReviewMetrics.recordCommentsPosted(postedCommentsCount);
                 codeReviewMetrics.recordCompleted();
+                codeReviewMetrics.recordOutcome("COMPLETED");
                 codeReviewMetrics.recordExecutionTime(duration);
             }
 
@@ -183,6 +204,7 @@ public class AsyncCodeReviewRunner {
             long duration = System.currentTimeMillis() - startTime;
             if (codeReviewMetrics != null) {
                 codeReviewMetrics.recordFailed();
+                codeReviewMetrics.recordOutcome("FAILED");
                 codeReviewMetrics.recordExecutionTime(duration);
             }
 

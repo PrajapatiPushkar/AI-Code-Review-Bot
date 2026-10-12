@@ -222,7 +222,8 @@ public class GithubPullRequestCodeReviewService {
                         reviewId, owner, repository, pullRequestNumber);
 
                 if (asyncCodeReviewRunner != null) {
-                    asyncCodeReviewRunner.executeReviewAsync(reviewId, actualGithubInstallationId, owner, repository, pullRequestNumber);
+                    String correlationId = MDC.get("correlationId");
+                    asyncCodeReviewRunner.executeReviewAsync(reviewId, actualGithubInstallationId, owner, repository, pullRequestNumber, correlationId);
                 }
 
                 return new CodeReviewExecutionResult(

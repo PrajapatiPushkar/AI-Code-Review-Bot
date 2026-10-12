@@ -312,6 +312,11 @@ class GithubPullRequestCodeReviewServiceTest {
             this.dispatchedReviewId = reviewId;
             this.dispatchedInstallationId = installationId;
         }
+
+        @Override
+        public synchronized void executeReviewAsync(Long reviewId, Long installationId, String owner, String repository, long pullRequestNumber, String correlationId) {
+            executeReviewAsync(reviewId, installationId, owner, repository, pullRequestNumber);
+        }
     }
 
     private static class StubPersistenceService extends CodeReviewPersistenceService {

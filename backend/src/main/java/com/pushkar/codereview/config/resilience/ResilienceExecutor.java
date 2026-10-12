@@ -82,6 +82,9 @@ public class ResilienceExecutor {
                 String reviewId = MDC.get("reviewId");
                 Throwable lastThrowable = event.getLastThrowable();
                 String httpStatus = extractHttpStatus(lastThrowable);
+                if ("429".equals(httpStatus) && codeReviewMetrics != null) {
+                    codeReviewMetrics.recordRateLimit(dep);
+                }
                 String exceptionType = lastThrowable != null ? lastThrowable.getClass().getSimpleName() : "Unknown";
                 log.warn("Retrying external call attempt {}/{} for dependency={} [reviewId={}, correlationId={}, status={}, exceptionType={}]: {}",
                         attempt, properties.getRetry().getMaxAttempts(), dep, reviewId, correlationId,
@@ -98,9 +101,16 @@ public class ResilienceExecutor {
         Supplier<T> retryDecorated = Retry.decorateSupplier(retry, supplier);
         Supplier<T> decorated = CircuitBreaker.decorateSupplier(circuitBreaker, retryDecorated);
 
+        long start = System.currentTimeMillis();
         try {
-            return decorated.get();
+            T result = decorated.get();
+            long duration = System.currentTimeMillis() - start;
+            if (codeReviewMetrics != null && !"gemini".equalsIgnoreCase(dep)) {
+                codeReviewMetrics.recordExternalApiRequest(dep, true, duration);
+            }
+            return result;
         } catch (CallNotPermittedException e) {
+            long duration = System.currentTimeMillis() - start;
             String correlationId = MDC.get("correlationId");
             String reviewId = MDC.get("reviewId");
             String cbState = circuitBreaker.getState().name();
@@ -109,6 +119,9 @@ public class ResilienceExecutor {
 
             if (codeReviewMetrics != null) {
                 codeReviewMetrics.recordCircuitBreakerOpen(dep);
+                if (!"gemini".equalsIgnoreCase(dep)) {
+                    codeReviewMetrics.recordExternalApiRequest(dep, false, duration);
+                }
             }
 
             if ("gemini".equalsIgnoreCase(dep)) {
@@ -117,10 +130,17 @@ public class ResilienceExecutor {
                 throw new GithubApiException("GitHub API circuit breaker is OPEN. Dependency is currently unavailable.", 503, e);
             }
         } catch (Exception e) {
+            long duration = System.currentTimeMillis() - start;
             String correlationId = MDC.get("correlationId");
             String reviewId = MDC.get("reviewId");
             String cbState = circuitBreaker.getState().name();
             String httpStatus = extractHttpStatus(e);
+            if ("429".equals(httpStatus) && codeReviewMetrics != null) {
+                codeReviewMetrics.recordRateLimit(dep);
+            }
+            if (codeReviewMetrics != null && !"gemini".equalsIgnoreCase(dep)) {
+                codeReviewMetrics.recordExternalApiRequest(dep, false, duration);
+            }
             if (isTransientException(e)) {
                 if (codeReviewMetrics != null) {
                     codeReviewMetrics.recordExternalFailure(dep);

@@ -42,6 +42,12 @@ public class CodeReviewMetrics {
     private final Map<String, Counter> apiFailureCounters = new ConcurrentHashMap<>();
     private final Map<String, Timer> apiDurationTimers = new ConcurrentHashMap<>();
 
+    // Workflow outcomes, findings by source, quality gate outcomes, rate limits
+    private final Map<String, Counter> outcomeCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> findingsBySourceCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> qualityGateCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> rateLimitCounters = new ConcurrentHashMap<>();
+
     public CodeReviewMetrics(@Autowired(required = false) MeterRegistry meterRegistry) {
         this.meterRegistry = (meterRegistry != null) ? meterRegistry : new SimpleMeterRegistry();
 
@@ -281,7 +287,85 @@ public class CodeReviewMetrics {
         return aiExecutionTimer;
     }
 
+    public Counter getApiRequestSuccessCounter(String dependency) {
+        return apiRequestSuccessCounters.get(dependency != null ? dependency.toLowerCase() : "unknown");
+    }
+
+    public Counter getApiRequestFailedCounter(String dependency) {
+        return apiRequestFailedCounters.get(dependency != null ? dependency.toLowerCase() : "unknown");
+    }
+
+    public Timer getApiDurationTimer(String dependency) {
+        return apiDurationTimers.get(dependency != null ? dependency.toLowerCase() : "unknown");
+    }
+
     public int getInProgressCount() {
         return inProgressGauge != null ? inProgressGauge.get() : 0;
+    }
+
+    public void recordOutcome(String status) {
+        String boundedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "UNKNOWN";
+        outcomeCounters.computeIfAbsent(boundedStatus, s -> Counter.builder("code_review.outcomes.total")
+                .tag("status", s)
+                .description("Total code reviews recorded by terminal outcome status")
+                .register(meterRegistry)).increment();
+    }
+
+    public void recordFindingsBySource(String source, int count) {
+        if (count > 0) {
+            String boundedSource = (source != null && !source.isBlank()) ? source.trim().toLowerCase() : "unknown";
+            findingsBySourceCounters.computeIfAbsent(boundedSource, src -> Counter.builder("code_review.findings.by_source.total")
+                    .tag("source", src)
+                    .description("Total review findings generated categorized by source")
+                    .register(meterRegistry)).increment(count);
+        }
+    }
+
+    public void recordQualityGateOutcome(String outcome) {
+        String boundedOutcome = (outcome != null && !outcome.isBlank()) ? outcome.trim().toUpperCase() : "NOT_EVALUATED";
+        qualityGateCounters.computeIfAbsent(boundedOutcome, o -> Counter.builder("code_review.quality_gate.outcomes.total")
+                .tag("outcome", o)
+                .description("Total quality gate evaluations classified by final outcome")
+                .register(meterRegistry)).increment();
+    }
+
+    public void recordRateLimit(String dependency) {
+        String dep = (dependency != null && !dependency.isBlank()) ? dependency.toLowerCase() : "unknown";
+        rateLimitCounters.computeIfAbsent(dep, k -> Counter.builder("external.rate_limit.total")
+                .tag("dependency", k)
+                .description("Total rate limit encounters (HTTP 429) for external dependencies")
+                .register(meterRegistry)).increment();
+    }
+
+    public Counter getOutcomeCounter(String status) {
+        return outcomeCounters.get(status != null ? status.toUpperCase() : "UNKNOWN");
+    }
+
+    public Counter getFindingsBySourceCounter(String source) {
+        return findingsBySourceCounters.get(source != null ? source.toLowerCase() : "unknown");
+    }
+
+    public Counter getQualityGateCounter(String outcome) {
+        return qualityGateCounters.get(outcome != null ? outcome.toUpperCase() : "NOT_EVALUATED");
+    }
+
+    public Counter getRateLimitCounter(String dependency) {
+        return rateLimitCounters.get(dependency != null ? dependency.toLowerCase() : "unknown");
+    }
+
+    public Map<String, Counter> getOutcomeCounters() {
+        return outcomeCounters;
+    }
+
+    public Map<String, Counter> getFindingsBySourceCounters() {
+        return findingsBySourceCounters;
+    }
+
+    public Map<String, Counter> getQualityGateCounters() {
+        return qualityGateCounters;
+    }
+
+    public Map<String, Counter> getRateLimitCounters() {
+        return rateLimitCounters;
     }
 }

@@ -88,8 +88,12 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/health",
                                 "/api/v1/health",
-                                "/actuator/**",
-                                "/api/v1/actuator/**",
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/api/v1/actuator/health",
+                                "/api/v1/actuator/health/**",
+                                "/actuator/info",
+                                "/api/v1/actuator/info",
                                 "/auth/register",
                                 "/api/v1/auth/register",
                                 "/auth/login",
@@ -98,6 +102,14 @@ public class SecurityConfig {
                                 "/api/v1/webhooks/github"
                         ).permitAll()
                         .requestMatchers(
+                                "/actuator/prometheus",
+                                "/api/v1/actuator/prometheus",
+                                "/actuator/metrics",
+                                "/actuator/metrics/**",
+                                "/api/v1/actuator/metrics",
+                                "/api/v1/actuator/metrics/**",
+                                "/actuator/**",
+                                "/api/v1/actuator/**",
                                 "/code-reviews/**",
                                 "/api/v1/code-reviews/**",
                                 "/github/installations/**",
@@ -107,7 +119,9 @@ public class SecurityConfig {
                                 "/repositories/**",
                                 "/api/v1/repositories/**",
                                 "/webhooks/deliveries/**",
-                                "/api/v1/webhooks/deliveries/**"
+                                "/api/v1/webhooks/deliveries/**",
+                                "/observability/**",
+                                "/api/v1/observability/**"
                         ).hasAnyRole("USER", "ADMIN", "DEVELOPER")
                         .anyRequest().authenticated()
                 );

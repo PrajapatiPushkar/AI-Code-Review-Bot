@@ -56,12 +56,13 @@ public class GithubWebhookService {
     private final CurrentUserService currentUserService;
     private final ObjectMapper objectMapper;
     private final CodeReviewPersistenceService persistenceService;
+    private final com.pushkar.codereview.config.WebhookMetrics webhookMetrics;
 
     public GithubWebhookService(GithubWebhookDeliveryRepository deliveryRepository,
                                 GithubInstallationRepository installationRepository,
                                 RepositoryRepository repositoryRepository,
                                 GithubPullRequestCodeReviewService codeReviewService) {
-        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, null, null, null);
+        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, null, null, null, null);
     }
 
     public GithubWebhookService(GithubWebhookDeliveryRepository deliveryRepository,
@@ -69,7 +70,7 @@ public class GithubWebhookService {
                                 RepositoryRepository repositoryRepository,
                                 GithubPullRequestCodeReviewService codeReviewService,
                                 CurrentUserService currentUserService) {
-        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, currentUserService, null, null);
+        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, currentUserService, null, null, null);
     }
 
     public GithubWebhookService(GithubWebhookDeliveryRepository deliveryRepository,
@@ -78,7 +79,17 @@ public class GithubWebhookService {
                                 GithubPullRequestCodeReviewService codeReviewService,
                                 CurrentUserService currentUserService,
                                 ObjectMapper objectMapper) {
-        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, currentUserService, objectMapper, null);
+        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, currentUserService, objectMapper, null, null);
+    }
+
+    public GithubWebhookService(GithubWebhookDeliveryRepository deliveryRepository,
+                                GithubInstallationRepository installationRepository,
+                                RepositoryRepository repositoryRepository,
+                                GithubPullRequestCodeReviewService codeReviewService,
+                                CurrentUserService currentUserService,
+                                ObjectMapper objectMapper,
+                                CodeReviewPersistenceService persistenceService) {
+        this(deliveryRepository, installationRepository, repositoryRepository, codeReviewService, currentUserService, objectMapper, persistenceService, null);
     }
 
     @Autowired
@@ -88,7 +99,8 @@ public class GithubWebhookService {
                                 GithubPullRequestCodeReviewService codeReviewService,
                                 @Autowired(required = false) CurrentUserService currentUserService,
                                 @Autowired(required = false) ObjectMapper objectMapper,
-                                @Autowired(required = false) CodeReviewPersistenceService persistenceService) {
+                                @Autowired(required = false) CodeReviewPersistenceService persistenceService,
+                                @Autowired(required = false) com.pushkar.codereview.config.WebhookMetrics webhookMetrics) {
         this.deliveryRepository = deliveryRepository;
         this.installationRepository = installationRepository;
         this.repositoryRepository = repositoryRepository;
@@ -96,6 +108,7 @@ public class GithubWebhookService {
         this.currentUserService = currentUserService;
         this.objectMapper = (objectMapper != null) ? objectMapper : new ObjectMapper();
         this.persistenceService = persistenceService;
+        this.webhookMetrics = webhookMetrics;
     }
 
     public GithubWebhookResponse processWebhook(String deliveryId, String eventType, byte[] payloadBytes) {
@@ -109,206 +122,263 @@ public class GithubWebhookService {
             throw new IllegalArgumentException("Missing or empty request body");
         }
 
-        // 1. Idempotency Check
-        Optional<GithubWebhookDelivery> existingOpt = deliveryRepository.findByDeliveryId(deliveryId);
-        if (existingOpt.isPresent()) {
-            GithubWebhookDelivery existing = existingOpt.get();
-            log.info("Duplicate webhook delivery detected [deliveryId={}]. Skipping re-processing.", deliveryId);
-            return GithubWebhookResponse.duplicate(
-                    deliveryId,
-                    existing.getCodeReviewId(),
-                    "Webhook delivery already processed"
-            );
-        }
-
-        // 2. Parse Payload safely
-        JsonNode rootNode;
+        org.slf4j.MDC.put("deliveryId", deliveryId);
         try {
-            rootNode = objectMapper.readTree(payloadBytes);
-        } catch (Exception e) {
-            log.warn("Malformed JSON payload received for deliveryId={}: {}", deliveryId, e.getMessage());
-            throw new IllegalArgumentException("Malformed JSON payload");
-        }
-
-        String action = rootNode.path("action").asText(null);
-        String repoFullName = rootNode.path("repository").path("full_name").asText(null);
-        Integer prNumber = rootNode.has("pull_request") ? rootNode.path("pull_request").path("number").asInt(-1) : null;
-        if (prNumber != null && prNumber <= 0) {
-            prNumber = rootNode.path("number").asInt(-1);
-        }
-        if (prNumber != null && prNumber <= 0) {
-            prNumber = null;
-        }
-
-        String commitSha = rootNode.path("pull_request").path("head").path("sha").asText(null);
-        Long installationId = rootNode.has("installation") ? rootNode.path("installation").path("id").asLong(-1) : null;
-        if (installationId != null && installationId <= 0) {
-            installationId = null;
-        }
-
-        // 3. Persist initial delivery record
-        GithubWebhookDelivery delivery = new GithubWebhookDelivery(
-                deliveryId,
-                eventType,
-                action,
-                repoFullName,
-                prNumber,
-                commitSha,
-                installationId,
-                null
-        );
-
-        try {
-            delivery = deliveryRepository.saveAndFlush(delivery);
-        } catch (DataIntegrityViolationException dive) {
-            log.info("Concurrent duplicate webhook delivery race condition detected [deliveryId={}].", deliveryId);
-            Optional<GithubWebhookDelivery> raceWinner = deliveryRepository.findByDeliveryId(deliveryId);
-            Long existingReviewId = raceWinner.map(GithubWebhookDelivery::getCodeReviewId).orElse(null);
-            return GithubWebhookResponse.duplicate(
-                    deliveryId,
-                    existingReviewId,
-                    "Concurrent duplicate webhook delivery already processed"
-            );
-        }
-
-        // 4. Handle Ping event
-        if ("ping".equalsIgnoreCase(eventType)) {
-            delivery.markIgnored("Ping acknowledged");
-            deliveryRepository.save(delivery);
-            log.info("Handled GitHub ping event [deliveryId={}].", deliveryId);
-            return GithubWebhookResponse.pong(deliveryId, "Ping acknowledged");
-        }
-
-        // 5. Filter non-PR events
-        if (!"pull_request".equalsIgnoreCase(eventType)) {
-            String msg = "Event '" + eventType + "' is not supported";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.info("Ignored unsupported webhook event [deliveryId={}, event={}].", deliveryId, eventType);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        // 6. Filter unsupported PR actions
-        if (action == null || !SUPPORTED_PR_ACTIONS.contains(action.toLowerCase())) {
-            String msg = "Pull request action '" + action + "' is not supported";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.info("Ignored unsupported PR action [deliveryId={}, action={}].", deliveryId, action);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        // 7. Filter draft and closed PRs
-        boolean isDraft = rootNode.path("pull_request").path("draft").asBoolean(false);
-        if (isDraft) {
-            String msg = "Draft pull requests are ignored";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.info("Ignored draft PR [deliveryId={}, repo={}, prNumber={}].", deliveryId, repoFullName, prNumber);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        String state = rootNode.path("pull_request").path("state").asText("open");
-        if (!"open".equalsIgnoreCase(state)) {
-            String msg = "Pull request state is '" + state + "', only open PRs are reviewed";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.info("Ignored non-open PR [deliveryId={}, state={}].", deliveryId, state);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        // 8. Extract payload metadata
-        String repoName = rootNode.path("repository").path("name").asText(null);
-        String ownerLogin = rootNode.path("repository").path("owner").path("login").asText(null);
-        long githubRepoId = rootNode.path("repository").path("id").asLong(-1);
-
-        if (installationId == null || installationId <= 0 || repoName == null || ownerLogin == null || prNumber == null) {
-            String msg = "Incomplete pull_request payload metadata";
-            delivery.markFailed("PERMANENT", msg, false, null);
-            deliveryRepository.save(delivery);
-            throw new IllegalArgumentException(msg);
-        }
-
-        // 9. Server-Side Ownership & Verification Checks
-        Optional<GithubInstallation> installationOpt = installationRepository.findByGithubInstallationId(installationId);
-        if (installationOpt.isEmpty() || !installationOpt.get().isVerified()) {
-            String msg = "Installation not found or not verified";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.warn("Ignored webhook for unverified/unknown installationId={}", installationId);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        GithubInstallation installation = installationOpt.get();
-        delivery.setUser(installation.getUser());
-        delivery.setInstallationId(installation.getGithubInstallationId());
-
-        Optional<Repository> repoOpt = repositoryRepository.findByGithubRepositoryId(githubRepoId);
-        if (repoOpt.isEmpty() && repoFullName != null) {
-            repoOpt = repositoryRepository.findByFullNameIgnoreCase(repoFullName);
-        }
-
-        if (repoOpt.isEmpty()) {
-            String msg = "Repository is not registered in the system";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.warn("Ignored webhook for unregistered repository={}", repoFullName);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        Repository repository = repoOpt.get();
-
-        if (repository.getUser() == null || !repository.getUser().getId().equals(installation.getUser().getId())) {
-            String msg = "Repository owner does not match installation owner";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.warn("Ignored webhook for owner mismatch on repository={}", repoFullName);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        if (Boolean.FALSE.equals(repository.getIsActive())) {
-            String msg = "Repository is currently inactive";
-            delivery.markIgnored(msg);
-            deliveryRepository.save(delivery);
-            log.info("Ignored webhook for inactive repository={}", repoFullName);
-            return GithubWebhookResponse.ignored(deliveryId, msg);
-        }
-
-        // 10. Dispatch to Asynchronous Review Pipeline
-        try {
-            CodeReviewExecutionResult result = codeReviewService.executeCodeReview(
-                    installation.getGithubInstallationId(),
-                    ownerLogin,
-                    repoName,
-                    prNumber,
-                    commitSha
-            );
-
-            delivery.markCompleted(result.getCodeReviewId());
-            deliveryRepository.save(delivery);
-
-            log.info("Webhook review successfully triggered: deliveryId={}, reviewId={}, created={}",
-                    deliveryId, result.getCodeReviewId(), result.isCreated());
-
-            if (result.isCreated()) {
-                return GithubWebhookResponse.accepted(
-                        deliveryId,
-                        result.getCodeReviewId(),
-                        "Pull request code review queued successfully"
-                );
-            } else {
+            // 1. Idempotency Check
+            Optional<GithubWebhookDelivery> existingOpt = deliveryRepository.findByDeliveryId(deliveryId);
+            if (existingOpt.isPresent()) {
+                GithubWebhookDelivery existing = existingOpt.get();
+                log.info("Duplicate webhook delivery detected [deliveryId={}]. Skipping re-processing.", deliveryId);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDuplicateDelivery();
+                }
                 return GithubWebhookResponse.duplicate(
                         deliveryId,
-                        result.getCodeReviewId(),
-                        "Review already active or completed for this commit SHA"
+                        existing.getCodeReviewId(),
+                        "Webhook delivery already processed"
                 );
             }
-        } catch (Exception e) {
-            log.error("Failed executing code review for webhook deliveryId={}: {}", deliveryId, e.getMessage(), e);
-            boolean isTransient = isTransientFailure(e);
-            String category = isTransient ? "TRANSIENT" : "PERMANENT";
-            delivery.markFailed(category, e.getMessage(), isTransient, null);
-            deliveryRepository.save(delivery);
-            throw e;
+
+            // 2. Parse Payload safely
+            JsonNode rootNode;
+            try {
+                rootNode = objectMapper.readTree(payloadBytes);
+            } catch (Exception e) {
+                log.warn("Malformed JSON payload received for deliveryId={}: {}", deliveryId, e.getMessage());
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("FAILED");
+                }
+                throw new IllegalArgumentException("Malformed JSON payload");
+            }
+
+            String action = rootNode.path("action").asText(null);
+            String repoFullName = rootNode.path("repository").path("full_name").asText(null);
+            Integer prNumber = rootNode.has("pull_request") ? rootNode.path("pull_request").path("number").asInt(-1) : null;
+            if (prNumber != null && prNumber <= 0) {
+                prNumber = rootNode.path("number").asInt(-1);
+            }
+            if (prNumber != null && prNumber <= 0) {
+                prNumber = null;
+            }
+
+            String commitSha = rootNode.path("pull_request").path("head").path("sha").asText(null);
+            Long installationId = rootNode.has("installation") ? rootNode.path("installation").path("id").asLong(-1) : null;
+            if (installationId != null && installationId <= 0) {
+                installationId = null;
+            }
+
+            // 3. Persist initial delivery record
+            GithubWebhookDelivery delivery = new GithubWebhookDelivery(
+                    deliveryId,
+                    eventType,
+                    action,
+                    repoFullName,
+                    prNumber,
+                    commitSha,
+                    installationId,
+                    null
+            );
+
+            try {
+                delivery = deliveryRepository.saveAndFlush(delivery);
+            } catch (DataIntegrityViolationException dive) {
+                log.info("Concurrent duplicate webhook delivery race condition detected [deliveryId={}].", deliveryId);
+                Optional<GithubWebhookDelivery> raceWinner = deliveryRepository.findByDeliveryId(deliveryId);
+                Long existingReviewId = raceWinner.map(GithubWebhookDelivery::getCodeReviewId).orElse(null);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDuplicateDelivery();
+                }
+                return GithubWebhookResponse.duplicate(
+                        deliveryId,
+                        existingReviewId,
+                        "Concurrent duplicate webhook delivery already processed"
+                );
+            }
+
+            // 4. Handle Ping event
+            if ("ping".equalsIgnoreCase(eventType)) {
+                delivery.markIgnored("Ping acknowledged");
+                deliveryRepository.save(delivery);
+                log.info("Handled GitHub ping event [deliveryId={}].", deliveryId);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.pong(deliveryId, "Ping acknowledged");
+            }
+
+            // 5. Filter non-PR events
+            if (!"pull_request".equalsIgnoreCase(eventType)) {
+                String msg = "Event '" + eventType + "' is not supported";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.info("Ignored unsupported webhook event [deliveryId={}, event={}].", deliveryId, eventType);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            // 6. Filter unsupported PR actions
+            if (action == null || !SUPPORTED_PR_ACTIONS.contains(action.toLowerCase())) {
+                String msg = "Pull request action '" + action + "' is not supported";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.info("Ignored unsupported PR action [deliveryId={}, action={}].", deliveryId, action);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            // 7. Filter draft and closed PRs
+            boolean isDraft = rootNode.path("pull_request").path("draft").asBoolean(false);
+            if (isDraft) {
+                String msg = "Draft pull requests are ignored";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.info("Ignored draft PR [deliveryId={}, repo={}, prNumber={}].", deliveryId, repoFullName, prNumber);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            String state = rootNode.path("pull_request").path("state").asText("open");
+            if (!"open".equalsIgnoreCase(state)) {
+                String msg = "Pull request state is '" + state + "', only open PRs are reviewed";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.info("Ignored non-open PR [deliveryId={}, state={}].", deliveryId, state);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            // 8. Extract payload metadata
+            String repoName = rootNode.path("repository").path("name").asText(null);
+            String ownerLogin = rootNode.path("repository").path("owner").path("login").asText(null);
+            long githubRepoId = rootNode.path("repository").path("id").asLong(-1);
+
+            if (installationId == null || installationId <= 0 || repoName == null || ownerLogin == null || prNumber == null) {
+                String msg = "Incomplete pull_request payload metadata";
+                delivery.markFailed("PERMANENT", msg, false, null);
+                deliveryRepository.save(delivery);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("FAILED");
+                    webhookMetrics.recordRetryExhausted();
+                }
+                throw new IllegalArgumentException(msg);
+            }
+
+            // 9. Server-Side Ownership & Verification Checks
+            Optional<GithubInstallation> installationOpt = installationRepository.findByGithubInstallationId(installationId);
+            if (installationOpt.isEmpty() || !installationOpt.get().isVerified()) {
+                String msg = "Installation not found or not verified";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.warn("Ignored webhook for unverified/unknown installationId={}", installationId);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            GithubInstallation installation = installationOpt.get();
+            delivery.setUser(installation.getUser());
+            delivery.setInstallationId(installation.getGithubInstallationId());
+
+            Optional<Repository> repoOpt = repositoryRepository.findByGithubRepositoryId(githubRepoId);
+            if (repoOpt.isEmpty() && repoFullName != null) {
+                repoOpt = repositoryRepository.findByFullNameIgnoreCase(repoFullName);
+            }
+
+            if (repoOpt.isEmpty()) {
+                String msg = "Repository is not registered in the system";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.warn("Ignored webhook for unregistered repository={}", repoFullName);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            Repository repository = repoOpt.get();
+
+            if (repository.getUser() == null || !repository.getUser().getId().equals(installation.getUser().getId())) {
+                String msg = "Repository owner does not match installation owner";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.warn("Ignored webhook for owner mismatch on repository={}", repoFullName);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            if (Boolean.FALSE.equals(repository.getIsActive())) {
+                String msg = "Repository is currently inactive";
+                delivery.markIgnored(msg);
+                deliveryRepository.save(delivery);
+                log.info("Ignored webhook for inactive repository={}", repoFullName);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("IGNORED");
+                }
+                return GithubWebhookResponse.ignored(deliveryId, msg);
+            }
+
+            // 10. Dispatch to Asynchronous Review Pipeline
+            try {
+                CodeReviewExecutionResult result = codeReviewService.executeCodeReview(
+                        installation.getGithubInstallationId(),
+                        ownerLogin,
+                        repoName,
+                        prNumber,
+                        commitSha
+                );
+
+                delivery.markCompleted(result.getCodeReviewId());
+                deliveryRepository.save(delivery);
+
+                log.info("Webhook review successfully triggered: deliveryId={}, reviewId={}, created={}",
+                        deliveryId, result.getCodeReviewId(), result.isCreated());
+
+                if (result.isCreated()) {
+                    if (webhookMetrics != null) {
+                        webhookMetrics.recordDeliveryStatus("COMPLETED");
+                    }
+                    return GithubWebhookResponse.accepted(
+                            deliveryId,
+                            result.getCodeReviewId(),
+                            "Pull request code review queued successfully"
+                    );
+                } else {
+                    if (webhookMetrics != null) {
+                        webhookMetrics.recordDuplicateDelivery();
+                    }
+                    return GithubWebhookResponse.duplicate(
+                            deliveryId,
+                            result.getCodeReviewId(),
+                            "Review already active or completed for this commit SHA"
+                    );
+                }
+            } catch (Exception e) {
+                log.error("Failed executing code review for webhook deliveryId={}: {}", deliveryId, e.getMessage(), e);
+                boolean isTransient = isTransientFailure(e);
+                String category = isTransient ? "TRANSIENT" : "PERMANENT";
+                delivery.markFailed(category, e.getMessage(), isTransient, null);
+                deliveryRepository.save(delivery);
+                if (webhookMetrics != null) {
+                    webhookMetrics.recordDeliveryStatus("FAILED");
+                    if (!delivery.isRetryable()) {
+                        webhookMetrics.recordRetryExhausted();
+                    }
+                }
+                throw e;
+            }
+        } finally {
+            org.slf4j.MDC.remove("deliveryId");
         }
     }
 
@@ -339,6 +409,10 @@ public class GithubWebhookService {
             throw new IllegalStateException("Delivery could not be claimed for retry; it may be processing concurrently");
         }
 
+        if (webhookMetrics != null) {
+            webhookMetrics.recordRetryAttempt();
+        }
+
         // Re-read updated delivery state
         delivery = deliveryRepository.findById(delivery.getId()).orElseThrow();
 
@@ -351,6 +425,7 @@ public class GithubWebhookService {
             shortRepo = parts[1];
         }
 
+        org.slf4j.MDC.put("deliveryId", deliveryId);
         try {
             CodeReviewExecutionResult result = codeReviewService.executeCodeReview(
                     delivery.getInstallationId(),
@@ -363,13 +438,24 @@ public class GithubWebhookService {
             delivery.markCompleted(result.getCodeReviewId());
             delivery = deliveryRepository.save(delivery);
             log.info("Retry executed successfully for deliveryId={}, reviewId={}", deliveryId, result.getCodeReviewId());
+            if (webhookMetrics != null) {
+                webhookMetrics.recordDeliveryStatus("COMPLETED");
+            }
         } catch (Exception ex) {
             log.error("Retry execution failed for deliveryId={}: {}", deliveryId, ex.getMessage(), ex);
             boolean isTransient = isTransientFailure(ex);
             String category = isTransient ? "TRANSIENT" : "PERMANENT";
             delivery.markFailed(category, ex.getMessage(), isTransient, null);
             delivery = deliveryRepository.save(delivery);
+            if (webhookMetrics != null) {
+                webhookMetrics.recordDeliveryStatus("FAILED");
+                if (!delivery.isRetryable()) {
+                    webhookMetrics.recordRetryExhausted();
+                }
+            }
             throw ex;
+        } finally {
+            org.slf4j.MDC.remove("deliveryId");
         }
 
         return mapToItemResponse(delivery);
@@ -426,6 +512,10 @@ public class GithubWebhookService {
             recovered++;
         }
 
+        if (recovered > 0 && webhookMetrics != null) {
+            webhookMetrics.recordStaleRecovered(recovered);
+        }
+
         return recovered;
     }
 
@@ -441,6 +531,10 @@ public class GithubWebhookService {
             } catch (Exception e) {
                 log.warn("Automatic retry attempt failed for deliveryId={}: {}", d.getDeliveryId(), e.getMessage());
             }
+        }
+
+        if (processed > 0 && webhookMetrics != null) {
+            webhookMetrics.recordRetriesProcessed(processed);
         }
 
         return processed;

@@ -16,6 +16,7 @@ import FindingsExplorerPlaceholderPage from './pages/FindingsExplorerPlaceholder
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 import WebhookDashboardPage from './pages/WebhookDashboardPage';
+import ObservabilityPage from './pages/ObservabilityPage';
 
 function App() {
   return (
@@ -44,6 +45,7 @@ function App() {
               <Route path="/findings" element={<FindingsExplorerPlaceholderPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/webhooks" element={<WebhookDashboardPage />} />
+              <Route path="/observability" element={<ObservabilityPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
 
