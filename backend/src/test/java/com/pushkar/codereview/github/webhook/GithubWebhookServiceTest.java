@@ -438,7 +438,9 @@ class GithubWebhookServiceTest {
         CodeReview inProgressReview = new CodeReview(12345L, "octocat", "hello-world", 42, testUser, "sha-active");
         inProgressReview.setId(777L);
         inProgressReview.setStatus(CodeReviewStatus.IN_PROGRESS);
+        inProgressReview.setCreatedAt(tenMinutesAgo); // Older than delivery lease threshold
         persistenceService.addReview(inProgressReview);
+        persistenceService.registerActiveReview(777L);
 
         int recovered = webhookService.recoverStaleProcessingDeliveries(300);
 
@@ -447,6 +449,34 @@ class GithubWebhookServiceTest {
         // Concurrency protection: original worker still active -> lease renewed, NOT failed!
         assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.PROCESSING);
         assertThat(updated.getStartedAt()).isAfter(tenMinutesAgo);
+        assertThat(inProgressReview.getStatus()).isEqualTo(CodeReviewStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void testRecoverStaleProcessingDeliveries_WhenReviewItselfIsStale_MarksReviewAndDeliveryFailedAndSchedulesRetry() {
+        GithubWebhookDelivery staleDelivery = new GithubWebhookDelivery("deliv-stale-rev", "pull_request", "opened", "octocat/hello-world", 42, "sha-stale", 12345L, testUser);
+        staleDelivery.setStatus(WebhookDeliveryStatus.PROCESSING);
+        Instant tenMinutesAgo = Instant.now().minusSeconds(600);
+        staleDelivery.setStartedAt(tenMinutesAgo);
+        staleDelivery.setCodeReviewId(778L);
+        deliveryRepository.save(staleDelivery);
+
+        CodeReview abandonedReview = new CodeReview(12345L, "octocat", "hello-world", 42, testUser, "sha-stale");
+        abandonedReview.setId(778L);
+        abandonedReview.setStatus(CodeReviewStatus.IN_PROGRESS);
+        abandonedReview.setCreatedAt(tenMinutesAgo);
+        persistenceService.addReview(abandonedReview);
+
+        int recovered = webhookService.recoverStaleProcessingDeliveries(300);
+
+        assertThat(recovered).isGreaterThanOrEqualTo(1);
+        // Review marked failed
+        assertThat(abandonedReview.getStatus()).isEqualTo(CodeReviewStatus.FAILED);
+        // Delivery marked failed with TIMEOUT and retry scheduled
+        GithubWebhookDelivery updated = deliveryRepository.findByDeliveryId("deliv-stale-rev").orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(WebhookDeliveryStatus.FAILED);
+        assertThat(updated.getErrorCategory()).isEqualTo("TIMEOUT");
+        assertThat(updated.isRetryable()).isTrue();
     }
 
     @Test
@@ -555,6 +585,28 @@ class GithubWebhookServiceTest {
         assertThat(detail.getRepository()).isEqualTo("octocat/hello-world");
         assertThat(detail.getCodeReviewId()).isEqualTo(77L);
         assertThat(detail.getStatus()).isEqualTo(WebhookDeliveryStatus.COMPLETED);
+    }
+
+    @Test
+    void testProcessPendingRetries_ExecutesRetriesAndHandlesIndividualFailuresSafely() {
+        // Delivery 1: eligible for retry, will succeed
+        GithubWebhookDelivery d1 = new GithubWebhookDelivery("d-retry-1", "pull_request", "opened", "octocat/hello-world", 1, "sha-r1", 12345L, testUser);
+        d1.markFailed("TRANSIENT", "Network err", true, 0);
+        d1.setNextRetryAt(Instant.now().minusSeconds(10));
+        deliveryRepository.save(d1);
+
+        // Delivery 2: eligible for retry, but not owned / throws error
+        GithubWebhookDelivery d2 = new GithubWebhookDelivery("d-retry-2", "pull_request", "opened", "octocat/hello-world", 2, "sha-r2", 12345L, otherUser);
+        d2.markFailed("TRANSIENT", "Network err", true, 0);
+        d2.setNextRetryAt(Instant.now().minusSeconds(10));
+        deliveryRepository.save(d2);
+
+        int processed = webhookService.processPendingRetries();
+
+        // 1 succeeded (d1), 1 failed authorization (d2) and was safely handled
+        assertThat(processed).isEqualTo(1);
+        GithubWebhookDelivery updated1 = deliveryRepository.findByDeliveryId("d-retry-1").orElseThrow();
+        assertThat(updated1.getStatus()).isEqualTo(WebhookDeliveryStatus.COMPLETED);
     }
 
     // --- In-Memory Test Helpers ---
@@ -889,6 +941,36 @@ class GithubWebhookServiceTest {
                             && r.getPullRequestNumber().equals(pullRequestNumber)
                             && (commitSha == null || commitSha.equals(r.getCommitSha())))
                     .findFirst();
+        }
+
+        @Override
+        public CodeReview markFailed(Long reviewId, String errorMessage) {
+            Optional<CodeReview> opt = findById(reviewId);
+            if (opt.isPresent()) {
+                CodeReview r = opt.get();
+                r.setStatus(CodeReviewStatus.FAILED);
+                r.setReviewSummary("FAILED: " + errorMessage);
+                r.setCompletedAt(Instant.now());
+                return r;
+            }
+            return null;
+        }
+
+        @Override
+        public int recoverStaleInProgressReviews(Instant threshold) {
+            int count = 0;
+            for (CodeReview r : reviews) {
+                if (isReviewActive(r.getId())) {
+                    continue;
+                }
+                if (r.getStatus() == CodeReviewStatus.IN_PROGRESS && r.getCreatedAt() != null && r.getCreatedAt().isBefore(threshold)) {
+                    r.setStatus(CodeReviewStatus.FAILED);
+                    r.setReviewSummary("FAILED: Review execution timed out or was interrupted by application shutdown");
+                    r.setCompletedAt(Instant.now());
+                    count++;
+                }
+            }
+            return count;
         }
     }
 }

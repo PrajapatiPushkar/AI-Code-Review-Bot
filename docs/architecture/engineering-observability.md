@@ -280,3 +280,61 @@ The React frontend includes an **Observability Dashboard** accessible at `/obser
    - If PostgreSQL becomes temporarily unreachable, `/actuator/health` and readiness probes will report `DOWN`, preventing new traffic routing while keeping the JVM process running.
 3. **External Rate Limits (HTTP 429)**:
    - When Gemini or GitHub triggers HTTP 429 rate limiting, `ResilienceExecutor` increments `external.service.ratelimit` before applying exponential backoff and circuit breaker protection.
+
+---
+
+## 9. Production Readiness, Reliability Hardening & Operational Guarantees (Commit 22)
+
+### 9.1 Hardened Configuration and Secret Safety
+
+Production deployments must validate credentials and secrets fail-fast on startup before opening listening ports:
+
+| Setting / Variable | Production Requirement | Validation Failure Behavior |
+| :--- | :--- | :--- |
+| `JWT_SECRET` | Minimum 32 bytes (256-bit entropy for HMAC-SHA256) | Startup aborts with `IllegalStateException` if missing or < 32 characters. |
+| `GITHUB_PRIVATE_KEY_PATH` | Must point to an existing, readable file on disk (or valid classpath) | Startup aborts if file does not exist. |
+| `GITHUB_WEBHOOK_SECRET` | Must be configured and cannot use default/dummy values | In `prod` profile, startup aborts if missing or set to placeholder values. |
+| `GEMINI_API_KEY` | Must be non-empty and non-default | Startup aborts if missing. |
+| `GITHUB_APP_ID` | Must be non-zero and non-empty | Startup aborts if missing. |
+| Diagnostic Safety | Secret scrubbing | Diagnostic logs and exception handlers strictly omit private keys, tokens, and HMAC secrets. |
+
+### 9.2 Graceful Shutdown & Connection Pool Sizing
+
+1. **Spring Boot Graceful Shutdown**:
+   - `server.shutdown: graceful`: Stops accepting new HTTP requests and allows active requests to complete within the configured timeout.
+   - `spring.lifecycle.timeout-per-shutdown-phase: 30s`: Enforces a 30-second drain window across lifecycle phases.
+2. **Worker Pool Drain**:
+   - `AsyncConfig.taskExecutor`: Configured with `setWaitForTasksToCompleteOnShutdown(true)` and `setAwaitTerminationSeconds(30)` to ensure async code review runner threads finish their execution pipeline before executor shutdown.
+3. **HikariCP Connection Pool Configuration & Relaxed Binding**:
+   - Default pool settings: `maximum-pool-size: 20`, `minimum-idle: 5`, `connection-timeout: 30000ms`, `idle-timeout: 600000ms`, `max-lifetime: 1800000ms`.
+   - Tunable via environment variables adhering to Spring Boot relaxed binding:
+     - Canonical relaxed binding environment variable: `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`
+     - Shorthand alias: `SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE`
+     - Legacy Docker fallback: `DB_POOL_MAX_SIZE`
+     - Minimum idle equivalents: `SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE`, `SPRING_DATASOURCE_HIKARI_MIN_IDLE`, and `DB_POOL_MIN_IDLE`.
+
+### 9.3 Database Failure & Exception Isolation
+
+1. **DataAccessException Handling**:
+   - `GlobalExceptionHandler` intercepts all Spring `DataAccessException` occurrences and maps them to HTTP 503 `Database Service Unavailable`.
+   - Database internal details, SQL fragments, schema identifiers, and connection strings are masked from error responses.
+2. **Transaction Boundary Isolation in Webhook Retries**:
+   - `GithubWebhookService.retryDelivery(...)` and `processPendingRetries()` operate with explicit per-delivery transaction isolation.
+   - Review pipeline execution errors do NOT roll back retry attempt increments or delivery failure records, guaranteeing retry exhaustion counters are preserved durably in PostgreSQL.
+
+### 9.4 Async Stale Recovery & Idempotency Guarantees
+
+1. **Active Review Lease & Heartbeat Protection**:
+   - Active reviews in `AsyncCodeReviewRunner` register with `CodeReviewPersistenceService` upon task start and continuously record heartbeats across pipeline stages (fetching diffs, executing AI analysis, evaluating deterministic rules, and publishing comments).
+   - **Protection Guarantee**: An actively running review is **never marked `FAILED` solely because its creation time exceeds 15 minutes**. As long as its heartbeat is active in memory, `recoverStaleInProgressReviews`, `recoverStaleProcessingDeliveries`, and `findDuplicateReview` treat the review as active.
+2. **Deadlock Elimination for Abandoned Webhooks**:
+   - For deliveries left in `PROCESSING` after an application crash, `recoverStaleProcessingDeliveries()` inspects the associated review. If the review is actively running, the delivery lease is renewed (`started_at = now()`) to protect against duplicate workers.
+   - If the review is **not active in memory and older than 15 minutes** (abandoned by process termination), it is marked `FAILED`, the delivery is marked `FAILED (TIMEOUT)`, and exponential backoff retry scheduling is initiated.
+3. **Idempotent Duplicate Resolution**:
+   - When checking for duplicates via `findDuplicateReview(...)`, actively running reviews (even if > 15 minutes old) return the active review, preserving idempotency and preventing duplicate executions.
+   - Abandoned stale `IN_PROGRESS` reviews (not active in memory and older than 15 minutes) are transitioned to `FAILED`, unblocking subsequent submissions or webhook retries.
+4. **Implemented Guarantees vs. Operational Limitations**:
+   - **Guaranteed**: Webhook deliveries claimed for retry via `claimForRetry` use atomic SQL updates (`WHERE status = 'FAILED'`), preventing duplicate concurrent worker processing across multi-node deployments.
+   - **Guaranteed**: Database migrations (Flyway V1 through V13) are verified and idempotent.
+   - **Guaranteed**: Application startup fails fast if security credentials do not meet production entropy or path requirements.
+   - **Operational Limitation**: If an ungraceful crash (SIGKILL or power termination) occurs, active in-memory review threads are interrupted immediately. Their PostgreSQL state will remain `IN_PROGRESS` until the background lease cleaner recovers them after the 15-minute lease threshold.

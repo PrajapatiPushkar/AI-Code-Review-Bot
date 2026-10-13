@@ -165,6 +165,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(response);
     }
 
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    public ResponseEntity<Map<String, Object>> handleDataAccessException(org.springframework.dao.DataAccessException ex) {
+        String correlationId = MDC.get("correlationId");
+        log.error("Database failure caught by GlobalExceptionHandler [correlationId={}]: {}", correlationId, ex.getMessage(), ex);
+
+        Map<String, Object> response = Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", HttpStatus.SERVICE_UNAVAILABLE.value(),
+                "error", "Database Unavailable",
+                "message", "Database service temporarily unavailable. Please retry later."
+        );
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneralException(Exception ex) {
         String correlationId = MDC.get("correlationId");

@@ -21,6 +21,8 @@ public class CodeReviewPersistenceService {
     private final CodeReviewRepository repository;
     private final CodeReviewFindingRepository findingRepository;
 
+    private final java.util.concurrent.ConcurrentMap<Long, Instant> activeReviewHeartbeats = new java.util.concurrent.ConcurrentHashMap<>();
+
     public CodeReviewPersistenceService(CodeReviewRepository repository) {
         this(repository, null);
     }
@@ -29,6 +31,43 @@ public class CodeReviewPersistenceService {
     public CodeReviewPersistenceService(CodeReviewRepository repository, @Autowired(required = false) CodeReviewFindingRepository findingRepository) {
         this.repository = repository;
         this.findingRepository = findingRepository;
+    }
+
+    public void registerActiveReview(Long reviewId) {
+        if (reviewId != null) {
+            activeReviewHeartbeats.put(reviewId, Instant.now());
+        }
+    }
+
+    public void recordHeartbeat(Long reviewId) {
+        if (reviewId != null) {
+            activeReviewHeartbeats.put(reviewId, Instant.now());
+        }
+    }
+
+    public void unregisterActiveReview(Long reviewId) {
+        if (reviewId != null) {
+            activeReviewHeartbeats.remove(reviewId);
+        }
+    }
+
+    public boolean isReviewActive(Long reviewId) {
+        if (reviewId == null) {
+            return false;
+        }
+        Instant heartbeat = activeReviewHeartbeats.get(reviewId);
+        if (heartbeat == null) {
+            return false;
+        }
+        // Active review is considered alive if heartbeat was updated within the last 15 minutes (900s)
+        return heartbeat.isAfter(Instant.now().minusSeconds(900));
+    }
+
+    public java.util.Optional<Instant> getReviewHeartbeat(Long reviewId) {
+        if (reviewId == null) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(activeReviewHeartbeats.get(reviewId));
     }
 
     @Transactional
@@ -48,6 +87,7 @@ public class CodeReviewPersistenceService {
         review.setCreatedAt(Instant.now());
         review.setCompletedAt(null);
         CodeReview saved = repository.save(review);
+        registerActiveReview(saved.getId());
         log.info("Created IN_PROGRESS review record [reviewId={}] for repository={}/{}, prNumber={}",
                 saved.getId(), owner, repositoryName, pullRequestNumber);
         return saved;
@@ -61,7 +101,7 @@ public class CodeReviewPersistenceService {
         return repository.findById(reviewId);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public java.util.Optional<CodeReview> findDuplicateReview(Long userId, Long installationId, String owner, String repositoryName, Integer pullRequestNumber, String commitSha) {
         if (repository == null) {
             return java.util.Optional.empty();
@@ -77,11 +117,71 @@ public class CodeReviewPersistenceService {
                 .filter(r -> r.getStatus() == CodeReviewStatus.IN_PROGRESS)
                 .findFirst();
         if (inProgress.isPresent()) {
-            return inProgress;
+            CodeReview cr = inProgress.get();
+            // If the review is actively running (heartbeat alive), it is definitively in-progress
+            if (isReviewActive(cr.getId())) {
+                return inProgress;
+            }
+            // If not actively running in memory, check if older than the 15-minute lease threshold
+            Instant staleThreshold = Instant.now().minusSeconds(900);
+            if (cr.getCreatedAt() != null && cr.getCreatedAt().isBefore(staleThreshold)) {
+                log.warn("Found abandoned stale IN_PROGRESS reviewId={} (created at {}). Marking FAILED to unblock duplicate check.",
+                        cr.getId(), cr.getCreatedAt());
+                int updatedRows = repository.transitionToFailedIfInProgress(
+                        cr.getId(),
+                        "FAILED: Review execution timed out or was interrupted by application shutdown",
+                        Instant.now()
+                );
+                if (updatedRows > 0) {
+                    cr.setStatus(CodeReviewStatus.FAILED);
+                } else {
+                    return repository.findById(cr.getId())
+                            .filter(r -> r.getStatus() == CodeReviewStatus.COMPLETED);
+                }
+            } else {
+                return inProgress;
+            }
         }
         return duplicates.stream()
                 .filter(r -> r.getStatus() == CodeReviewStatus.COMPLETED)
                 .findFirst();
+    }
+
+    @Transactional
+    public int recoverStaleInProgressReviews(Instant threshold) {
+        if (repository == null) {
+            return 0;
+        }
+        // Minimum threshold of 15 minutes (900s) to prevent prematurely failing legitimate long-running reviews
+        Instant effectiveThreshold = (threshold != null && threshold.isBefore(Instant.now().minusSeconds(900)))
+                ? threshold
+                : Instant.now().minusSeconds(900);
+        List<CodeReview> stale = repository.findStaleInProgressReviews(effectiveThreshold);
+        if (stale == null || stale.isEmpty()) {
+            return 0;
+        }
+        int recovered = 0;
+        for (CodeReview r : stale) {
+            // CRITICAL: An actively running review must NEVER be marked FAILED solely due to creation time
+            if (isReviewActive(r.getId())) {
+                log.info("ReviewId={} is older than threshold but actively running (heartbeat alive); skipping stale recovery", r.getId());
+                continue;
+            }
+            int updatedRows = repository.transitionToFailedIfInProgress(
+                    r.getId(),
+                    "FAILED: Review execution timed out or was interrupted by application shutdown",
+                    Instant.now()
+            );
+            if (updatedRows > 0) {
+                r.setStatus(CodeReviewStatus.FAILED);
+                r.setCompletedAt(Instant.now());
+                recovered++;
+                log.warn("Recovered abandoned stale IN_PROGRESS reviewId={} created at {}", r.getId(), r.getCreatedAt());
+            } else {
+                log.info("ReviewId={} was concurrently completed or transitioned; skipped stale fail", r.getId());
+            }
+        }
+        return recovered;
     }
 
     @Transactional
@@ -110,6 +210,7 @@ public class CodeReviewPersistenceService {
 
     @Transactional
     public CodeReview markCompleted(Long reviewId, String reviewSummary, int totalFindings, int postedCommentsCount) {
+        unregisterActiveReview(reviewId);
         CodeReview review = repository.findById(reviewId)
                 .orElseThrow(() -> new ResourceNotFoundException("CodeReview record not found with id: " + reviewId));
         review.setStatus(CodeReviewStatus.COMPLETED);
@@ -124,15 +225,21 @@ public class CodeReviewPersistenceService {
 
     @Transactional
     public CodeReview markFailed(Long reviewId, String errorMessage) {
+        unregisterActiveReview(reviewId);
+        String summary = (errorMessage != null && !errorMessage.isBlank())
+                ? "FAILED: " + errorMessage
+                : "FAILED";
+        int updatedRows = repository.transitionToFailedIfInProgress(reviewId, summary, Instant.now());
         CodeReview review = repository.findById(reviewId)
                 .orElseThrow(() -> new ResourceNotFoundException("CodeReview record not found with id: " + reviewId));
-        review.setStatus(CodeReviewStatus.FAILED);
-        if (errorMessage != null && !errorMessage.isBlank()) {
-            review.setReviewSummary("FAILED: " + errorMessage);
+        if (updatedRows == 0 && review.getStatus() == CodeReviewStatus.COMPLETED) {
+            log.info("ReviewId={} is already COMPLETED; not overwriting with FAILED", reviewId);
+            return review;
         }
+        review.setStatus(CodeReviewStatus.FAILED);
+        review.setReviewSummary(summary);
         review.setCompletedAt(Instant.now());
-        CodeReview updated = repository.save(review);
         log.warn("Marked reviewId={} as FAILED: {}", reviewId, errorMessage);
-        return updated;
+        return review;
     }
 }

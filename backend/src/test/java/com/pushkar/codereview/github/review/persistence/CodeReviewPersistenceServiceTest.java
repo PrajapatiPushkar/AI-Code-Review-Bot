@@ -165,6 +165,25 @@ class CodeReviewPersistenceServiceTest {
         }
 
         @Override
+        public java.util.List<CodeReview> findStaleInProgressReviews(java.time.Instant threshold) {
+            return database.values().stream()
+                    .filter(r -> r.getStatus() == CodeReviewStatus.IN_PROGRESS && r.getCreatedAt() != null && r.getCreatedAt().isBefore(threshold))
+                    .toList();
+        }
+
+        @Override
+        public int transitionToFailedIfInProgress(Long id, String summary, java.time.Instant completedAt) {
+            CodeReview r = database.get(id);
+            if (r != null && r.getStatus() == CodeReviewStatus.IN_PROGRESS) {
+                r.setStatus(CodeReviewStatus.FAILED);
+                r.setReviewSummary(summary);
+                r.setCompletedAt(completedAt);
+                return 1;
+            }
+            return 0;
+        }
+
+        @Override
         public com.pushkar.codereview.analytics.projection.ReviewOverviewProjection getOverviewStats(Long userId, String owner, String repository, java.time.Instant fromInstant, java.time.Instant toInstant) {
             return null;
         }

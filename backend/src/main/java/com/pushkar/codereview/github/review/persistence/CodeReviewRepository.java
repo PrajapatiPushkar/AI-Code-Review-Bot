@@ -43,6 +43,19 @@ public interface CodeReviewRepository extends JpaRepository<CodeReview, Long>, J
             @org.springframework.data.repository.query.Param("statuses") List<CodeReviewStatus> statuses
     );
 
+    @org.springframework.data.jpa.repository.Query("SELECT r FROM CodeReview r WHERE r.status = com.pushkar.codereview.github.review.persistence.CodeReviewStatus.IN_PROGRESS AND r.createdAt < :threshold")
+    List<CodeReview> findStaleInProgressReviews(@org.springframework.data.repository.query.Param("threshold") java.time.Instant threshold);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("UPDATE CodeReview r SET r.status = com.pushkar.codereview.github.review.persistence.CodeReviewStatus.FAILED, " +
+            "r.reviewSummary = :summary, r.completedAt = :completedAt " +
+            "WHERE r.id = :id AND r.status = com.pushkar.codereview.github.review.persistence.CodeReviewStatus.IN_PROGRESS")
+    int transitionToFailedIfInProgress(
+            @org.springframework.data.repository.query.Param("id") Long id,
+            @org.springframework.data.repository.query.Param("summary") String summary,
+            @org.springframework.data.repository.query.Param("completedAt") java.time.Instant completedAt
+    );
+
     @org.springframework.data.jpa.repository.Query("SELECT " +
             "COUNT(r) as totalReviews, " +
             "COALESCE(SUM(CASE WHEN r.status = com.pushkar.codereview.github.review.persistence.CodeReviewStatus.COMPLETED THEN 1L ELSE 0L END), 0L) as completedReviews, " +

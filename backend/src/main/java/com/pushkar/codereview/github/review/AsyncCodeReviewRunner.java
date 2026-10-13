@@ -94,6 +94,9 @@ public class AsyncCodeReviewRunner {
         }
 
         long startTime = System.currentTimeMillis();
+        if (persistenceService != null && reviewId != null) {
+            persistenceService.registerActiveReview(reviewId);
+        }
         if (codeReviewMetrics != null) {
             codeReviewMetrics.incrementInProgress();
         }
@@ -102,7 +105,13 @@ public class AsyncCodeReviewRunner {
 
         try {
             ReviewInput reviewInput = pullRequestReviewService.getReviewInput(installationId, owner, repository, pullRequestNumber);
+            if (persistenceService != null && reviewId != null) {
+                persistenceService.recordHeartbeat(reviewId);
+            }
             ReviewResult aiReviewResult = aiReviewService.review(reviewInput);
+            if (persistenceService != null && reviewId != null) {
+                persistenceService.recordHeartbeat(reviewId);
+            }
             int aiFindingsCount = (aiReviewResult != null && aiReviewResult.getFindings() != null) ? aiReviewResult.getFindings().size() : 0;
             if (codeReviewMetrics != null) {
                 codeReviewMetrics.recordFindingsBySource("ai", aiFindingsCount);
@@ -154,6 +163,9 @@ public class AsyncCodeReviewRunner {
             List<GithubReviewCommentResponse> postedComments = reviewCommentService.postReviewComments(
                     installationId, owner, repository, pullRequestNumber, commitId, reviewResult
             );
+            if (persistenceService != null && reviewId != null) {
+                persistenceService.recordHeartbeat(reviewId);
+            }
 
             if (persistenceService != null && reviewId != null && reviewResult != null && reviewResult.getFindings() != null) {
                 persistenceService.saveFindings(reviewId, reviewResult.getFindings());
@@ -215,6 +227,9 @@ public class AsyncCodeReviewRunner {
                 persistenceService.markFailed(reviewId, ex.getMessage());
             }
         } finally {
+            if (persistenceService != null && reviewId != null) {
+                persistenceService.unregisterActiveReview(reviewId);
+            }
             if (codeReviewMetrics != null) {
                 codeReviewMetrics.decrementInProgress();
             }

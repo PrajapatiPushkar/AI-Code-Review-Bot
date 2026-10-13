@@ -37,8 +37,8 @@ public class ProductionConfigValidator implements ApplicationRunner {
         List<String> errors = new ArrayList<>();
 
         String jwtSecret = jwtProperties.getSecret();
-        if (jwtSecret == null || jwtSecret.isBlank() || jwtSecret.contains("defaultDevSecretKey")) {
-            errors.add("JWT_SECRET must be configured with a secure production secret");
+        if (jwtSecret == null || jwtSecret.isBlank() || jwtSecret.contains("defaultDevSecretKey") || jwtSecret.length() < 32) {
+            errors.add("JWT_SECRET must be configured with a secure production secret (at least 32 characters)");
         }
 
         String dbPassword = environment.getProperty("spring.datasource.password");
@@ -58,6 +58,18 @@ public class ProductionConfigValidator implements ApplicationRunner {
         boolean hasKeyPath = githubProperties.getPrivateKeyPath() != null && !githubProperties.getPrivateKeyPath().isBlank();
         if (!hasKey && !hasKeyPath) {
             errors.add("GITHUB_PRIVATE_KEY or GITHUB_PRIVATE_KEY_PATH must be configured in production");
+        } else if (!hasKey && hasKeyPath) {
+            String path = githubProperties.getPrivateKeyPath();
+            if (!path.startsWith("classpath:") && !java.nio.file.Files.exists(java.nio.file.Path.of(path))) {
+                errors.add("GITHUB_PRIVATE_KEY_PATH file does not exist: " + path);
+            }
+        }
+
+        String webhookSecret = githubProperties.getWebhookSecret();
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            errors.add("GITHUB_WEBHOOK_SECRET must not be blank in production");
+        } else if (webhookSecret.contains("defaultWebhookSecret")) {
+            errors.add("GITHUB_WEBHOOK_SECRET must not use the default placeholder secret in production");
         }
 
         if (!errors.isEmpty()) {

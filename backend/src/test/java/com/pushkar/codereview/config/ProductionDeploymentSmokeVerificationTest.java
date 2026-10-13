@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ProductionDeploymentSmokeVerificationTest {
 
     @Test
-    void testFlywayMigrationsV1ToV9Exist() {
+    void testFlywayMigrationsV1ToV13Exist() {
         List<String> expectedMigrations = List.of(
                 "db/migration/V1__create_users_table.sql",
                 "db/migration/V2__create_repositories_table.sql",
@@ -25,7 +25,11 @@ class ProductionDeploymentSmokeVerificationTest {
                 "db/migration/V6__add_user_id_to_code_reviews.sql",
                 "db/migration/V7__add_github_installation_verification.sql",
                 "db/migration/V8__create_code_review_findings_table.sql",
-                "db/migration/V9__add_commit_sha_to_code_reviews.sql"
+                "db/migration/V9__add_commit_sha_to_code_reviews.sql",
+                "db/migration/V10__create_code_fix_proposals_table.sql",
+                "db/migration/V11__create_repository_review_policies_and_quality_gates.sql",
+                "db/migration/V12__create_github_webhook_deliveries_table.sql",
+                "db/migration/V13__add_webhook_delivery_reliability_and_retry_fields.sql"
         );
 
         for (String migration : expectedMigrations) {
@@ -57,6 +61,7 @@ class ProductionDeploymentSmokeVerificationTest {
         GithubProperties githubProperties = new GithubProperties();
         githubProperties.setAppId("123456");
         githubProperties.setPrivateKey("-----BEGIN RSA PRIVATE KEY-----\ndummyKey\n-----END RSA PRIVATE KEY-----");
+        githubProperties.setWebhookSecret("prodWebhookSecretLongAndSecure9999");
         GeminiProperties geminiProperties = new GeminiProperties("realApiKey123", "gemini-3.6-flash", "https://generativelanguage.googleapis.com");
 
         MockEnvironment env = new MockEnvironment();

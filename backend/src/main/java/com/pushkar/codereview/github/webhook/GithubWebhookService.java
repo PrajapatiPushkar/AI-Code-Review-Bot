@@ -384,7 +384,6 @@ public class GithubWebhookService {
 
     // --- Retry Operations ---
 
-    @Transactional
     public WebhookDeliveryItemResponse retryDelivery(String deliveryId) {
         GithubWebhookDelivery delivery = findAndAuthorizeDelivery(deliveryId);
 
@@ -466,6 +465,15 @@ public class GithubWebhookService {
     @Transactional
     public int recoverStaleProcessingDeliveries(int staleThresholdSeconds) {
         Instant threshold = Instant.now().minusSeconds(staleThresholdSeconds > 0 ? staleThresholdSeconds : 300);
+
+        if (persistenceService != null) {
+            try {
+                persistenceService.recoverStaleInProgressReviews(threshold);
+            } catch (Exception e) {
+                log.warn("Failed recovering stale in-progress code reviews: {}", e.getMessage());
+            }
+        }
+
         List<GithubWebhookDelivery> stale = deliveryRepository.findStaleProcessingDeliveries(threshold);
         int recovered = 0;
 
@@ -489,12 +497,20 @@ public class GithubWebhookService {
                 if (activeReviewOpt.isPresent()) {
                     CodeReview review = activeReviewOpt.get();
                     if (review.getStatus() == CodeReviewStatus.IN_PROGRESS) {
-                        d.setStartedAt(Instant.now());
-                        deliveryRepository.save(d);
-                        log.info("Renewed processing lease for deliveryId={} because reviewId={} is still IN_PROGRESS",
-                                d.getDeliveryId(), review.getId());
-                        recovered++;
-                        continue;
+                        boolean isActive = persistenceService.isReviewActive(review.getId());
+                        if (isActive || (review.getCreatedAt() != null && !review.getCreatedAt().isBefore(threshold))) {
+                            d.setStartedAt(Instant.now());
+                            deliveryRepository.save(d);
+                            log.info("Renewed processing lease for deliveryId={} because reviewId={} is actively IN_PROGRESS (isActive={})",
+                                    d.getDeliveryId(), review.getId(), isActive);
+                            recovered++;
+                            continue;
+                        } else {
+                            log.warn("Marking abandoned IN_PROGRESS reviewId={} as FAILED for deliveryId={}",
+                                    review.getId(), d.getDeliveryId());
+                            persistenceService.markFailed(review.getId(),
+                                    "Review execution timed out or was interrupted by application shutdown");
+                        }
                     } else if (review.getStatus() == CodeReviewStatus.COMPLETED) {
                         d.markCompleted(review.getId());
                         deliveryRepository.save(d);
@@ -519,7 +535,6 @@ public class GithubWebhookService {
         return recovered;
     }
 
-    @Transactional
     public int processPendingRetries() {
         List<GithubWebhookDelivery> pending = deliveryRepository.findEligibleScheduledRetries(Instant.now());
         int processed = 0;

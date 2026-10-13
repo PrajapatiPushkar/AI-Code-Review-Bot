@@ -384,6 +384,8 @@ class AnalyticsServiceTest {
         @Override public List<CodeReview> findByUserIdAndOwnerAndRepositoryAndPullRequestNumber(Long userId, String owner, String repository, Integer pullRequestNumber) { return List.of(); }
         @Override public Optional<CodeReview> findByIdAndUserId(Long id, Long userId) { return Optional.empty(); }
         @Override public List<CodeReview> findDuplicateReviews(Long userId, Long installationId, String owner, String repository, Integer pullRequestNumber, String commitSha, List<CodeReviewStatus> statuses) { return List.of(); }
+        @Override public List<CodeReview> findStaleInProgressReviews(Instant threshold) { return List.of(); }
+        @Override public int transitionToFailedIfInProgress(Long id, String summary, Instant completedAt) { return 0; }
 
         @Override
         public ReviewOverviewProjection getOverviewStats(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) {

@@ -20,6 +20,8 @@ public class AsyncConfig {
         executor.setMaxPoolSize(8);
         executor.setQueueCapacity(50);
         executor.setThreadNamePrefix("ai-review-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
         executor.initialize();
         return executor;
     }

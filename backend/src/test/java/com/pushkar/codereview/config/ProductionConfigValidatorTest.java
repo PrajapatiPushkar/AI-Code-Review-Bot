@@ -22,6 +22,8 @@ class ProductionConfigValidatorTest {
         githubProperties.setAppId("123456");
         githubProperties.setPrivateKey("-----BEGIN RSA PRIVATE KEY-----\ndummyKey\n-----END RSA PRIVATE KEY-----");
 
+        githubProperties.setWebhookSecret("prodWebhookSecretLongAndSecure9999");
+
         geminiProperties = new GeminiProperties("realGeminiApiKey123", "gemini-3.6-flash", "https://generativelanguage.googleapis.com");
 
         environment = new MockEnvironment();
@@ -42,6 +44,15 @@ class ProductionConfigValidatorTest {
         assertThatThrownBy(() -> validator.run(null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("JWT_SECRET must be configured with a secure production secret");
+    }
+
+    @Test
+    void testRun_ShortJwtSecret_ThrowsException() {
+        jwtProperties.setSecret("shortSecretKey123");
+
+        assertThatThrownBy(() -> validator.run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET must be configured with a secure production secret (at least 32 characters)");
     }
 
     @Test
@@ -70,6 +81,34 @@ class ProductionConfigValidatorTest {
         assertThatThrownBy(() -> validator.run(null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("GITHUB_PRIVATE_KEY or GITHUB_PRIVATE_KEY_PATH must be configured in production");
+    }
+
+    @Test
+    void testRun_NonExistentGithubPrivateKeyPath_ThrowsException() {
+        githubProperties.setPrivateKey(null);
+        githubProperties.setPrivateKeyPath("/non/existent/path/private-key.pem");
+
+        assertThatThrownBy(() -> validator.run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GITHUB_PRIVATE_KEY_PATH file does not exist");
+    }
+
+    @Test
+    void testRun_MissingGithubWebhookSecret_ThrowsException() {
+        githubProperties.setWebhookSecret("");
+
+        assertThatThrownBy(() -> validator.run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GITHUB_WEBHOOK_SECRET must not be blank in production");
+    }
+
+    @Test
+    void testRun_DefaultGithubWebhookSecret_ThrowsException() {
+        githubProperties.setWebhookSecret("defaultWebhookSecret123");
+
+        assertThatThrownBy(() -> validator.run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GITHUB_WEBHOOK_SECRET must not use the default placeholder secret in production");
     }
 
     @Test

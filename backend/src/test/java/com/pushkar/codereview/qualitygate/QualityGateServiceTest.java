@@ -235,6 +235,8 @@ class QualityGateServiceTest {
         @Override public List<CodeReview> findByUserIdAndOwnerAndRepositoryOrderByCreatedAtDesc(Long userId, String owner, String repository) { return List.of(); }
         @Override public List<CodeReview> findByUserIdAndOwnerAndRepositoryAndPullRequestNumber(Long userId, String owner, String repository, Integer pullRequestNumber) { return List.of(); }
         @Override public List<CodeReview> findDuplicateReviews(Long userId, Long installationId, String owner, String repository, Integer pullRequestNumber, String commitSha, List<CodeReviewStatus> statuses) { return List.of(); }
+        @Override public List<CodeReview> findStaleInProgressReviews(Instant threshold) { return List.of(); }
+        @Override public int transitionToFailedIfInProgress(Long id, String summary, Instant completedAt) { return 0; }
         @Override public Optional<CodeReview> findByIdAndUserId(Long id, Long userId) { return Optional.ofNullable(database.get(id)); }
         @Override public com.pushkar.codereview.analytics.projection.ReviewOverviewProjection getOverviewStats(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) { return null; }
         @Override public List<com.pushkar.codereview.analytics.projection.ReviewTrendRowProjection> getTrendRows(Long userId, String owner, String repository, Instant fromInstant, Instant toInstant) { return List.of(); }
