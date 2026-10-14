@@ -1,10 +1,13 @@
 services:
   postgres:
-    # Production Security: Do not expose PostgreSQL port 5432 publicly on host
-    ports: []
+    # Production Security: Do not expose PostgreSQL port on host; internal network only
+    ports: !reset []
     restart: always
 
   backend:
     environment:
       SPRING_PROFILES_ACTIVE: prod
+    restart: always
+
+  frontend:
     restart: always
