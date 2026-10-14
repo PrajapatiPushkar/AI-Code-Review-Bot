@@ -8,3 +8,6 @@ dist/
 .env.*
 !.env.example
 *.log
+*.pem
+*.key
+secrets/

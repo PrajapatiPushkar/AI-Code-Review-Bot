@@ -90,3 +90,70 @@ jobs:
       - name: Build frontend bundle
         working-directory: frontend
         run: npm run build
+
+  docker:
+    name: Docker Build & Compose Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate Docker Compose configuration
+        run: |
+          echo "Validating Docker Compose configurations..."
+
+          # Validate development configuration syntax and structure (suppress resolved config output to prevent secret leakage)
+          docker compose -f docker-compose.yml config --quiet
+
+          # Validate production configuration syntax and structure
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+
+          # Verify that development Compose includes expected services
+          DEV_SERVICES=$(docker compose -f docker-compose.yml config --services)
+          for SERVICE in postgres backend frontend; do
+            if ! echo "$DEV_SERVICES" | grep -E "(^|[[:space:]])${SERVICE}([[:space:]]|$)"; then
+              echo "Error: Expected service '$SERVICE' not found in development compose configuration"
+              exit 1
+            fi
+          done
+          echo "Base Compose services verified: postgres, backend, frontend"
+
+          # Verify that production Compose includes expected services
+          PROD_SERVICES=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --services)
+          for SERVICE in postgres backend frontend; do
+            if ! echo "$PROD_SERVICES" | grep -E "(^|[[:space:]])${SERVICE}([[:space:]]|$)"; then
+              echo "Error: Expected service '$SERVICE' not found in production compose configuration"
+              exit 1
+            fi
+          done
+          echo "Production Compose services verified: postgres, backend, frontend"
+
+          # Verify production configuration does not expose PostgreSQL port on host
+          if command -v jq >/dev/null 2>&1; then
+            POSTGRES_PORTS_COUNT=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json | jq -r '.services.postgres.ports // [] | length')
+          else
+            POSTGRES_PORTS_COUNT=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('services', {}).get('postgres', {}).get('ports') or []))")
+          fi
+
+          if [ "$POSTGRES_PORTS_COUNT" != "0" ]; then
+            echo "Security Error: PostgreSQL publishes host ports in production Compose configuration!"
+            exit 1
+          fi
+          echo "Production security check passed: PostgreSQL host ports are completely unexposed (count: 0)"
+
+      - name: Build backend Docker image
+        run: |
+          echo "Building backend container image with Maven multi-stage build..."
+          docker build \
+            --tag ai-code-review-backend:ci-validate \
+            --file backend/Dockerfile \
+            backend
+
+      - name: Build frontend Docker image
+        run: |
+          echo "Building frontend container image with Vite/Nginx reverse proxy configuration..."
+          docker build \
+            --build-arg VITE_API_BASE_URL=/api/v1 \
+            --tag ai-code-review-frontend:ci-validate \
+            --file frontend/Dockerfile \
+            frontend

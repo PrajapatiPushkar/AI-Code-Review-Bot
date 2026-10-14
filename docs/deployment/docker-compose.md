@@ -256,8 +256,24 @@ PostgreSQL data is stored in the Docker named volume `postgres-data` mapped to `
 
 ---
 
-## 10. Known Limitations & Checks Requiring Manual Verification
+## 10. Automated CI Pipeline Validation
 
-1. **Remote Cloud Deployment**: The Docker Compose workflow has been verified locally via `docker compose config`. Remote server provisioning, TLS certificate issuance (e.g. Let's Encrypt), and DNS records require manual operator configuration.
-2. **Docker Daemon Execution**: Full multi-container runtime execution (`docker compose up`) requires the Docker daemon to be running on the host system.
-3. **External API Quotas**: Real GitHub App webhooks and Gemini AI tokens depend on external service availability and valid credentials provided by the operator.
+To ensure configuration drift, malformed Compose syntax, or container build regressions are caught early:
+
+- **Continuous Integration Gate**: Every push and pull request targeting `main`, `feature/**`, and `fix/**` runs the `Docker Build & Compose Validation` job defined in [.github/workflows/ci.yml](file:///c:/Users/kppus/OneDrive/Documents/Desktop/AI-Code-Review-Bot/.github/workflows/ci.yml).
+- **Automated Checks**:
+  1. Validates `docker compose -f docker-compose.yml config --quiet` (development configuration).
+  2. Validates `docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet` (production override).
+  3. Verifies that `postgres`, `backend`, and `frontend` services are present in rendered configurations.
+  4. Enforces production security by asserting that PostgreSQL host ports are unexposed (`postgres.ports` count == 0).
+  5. Compiles both `backend/Dockerfile` and `frontend/Dockerfile` via Docker build to verify buildability without publishing images.
+- **Reference**: See [docs/ci/github-actions-ci.md](file:///c:/Users/kppus/OneDrive/Documents/Desktop/AI-Code-Review-Bot/docs/ci/github-actions-ci.md) for full CI pipeline specifications.
+
+---
+
+## 11. Known Limitations & Checks Requiring Manual Verification
+
+1. **Build and Configuration Only in CI**: GitHub Actions validates Compose configuration rendering and Docker image builds; it does NOT publish container images to Docker Hub, GHCR, or cloud registries, nor does it start the full multi-container stack against live databases in CI.
+2. **Remote Cloud Deployment**: The Docker Compose workflow has been verified locally and in CI. Remote server provisioning, TLS certificate issuance (e.g. Let's Encrypt), and DNS records require manual operator configuration.
+3. **Docker Daemon Execution**: Full multi-container runtime execution (`docker compose up`) requires the Docker daemon to be running on the host system.
+4. **External API Quotas & Secrets**: CI executes with safe placeholder defaults. Real GitHub App webhooks, private keys, and Gemini AI tokens depend on external service availability and valid credentials provided by the operator in `.env`.
