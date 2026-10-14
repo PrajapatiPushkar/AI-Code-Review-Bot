@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  whitespace:
+    name: Whitespace & Hygiene Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate whitespace formatting
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "Validating pull request changes for whitespace errors between base (${{ github.event.pull_request.base.sha }}) and head (${{ github.event.pull_request.head.sha }})..."
+            git diff --check ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+              echo "Validating push changes for whitespace errors between ${{ github.event.before }} and ${{ github.sha }}..."
+              git diff --check ${{ github.event.before }}..${{ github.sha }}
+            elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              echo "Validating latest commit changes for whitespace errors (HEAD~1..HEAD)..."
+              git diff --check HEAD~1..HEAD
+            else
+              echo "Validating initial commit changes for whitespace errors..."
+              git diff --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904..HEAD
+            fi
+          else
+            echo "Validating working tree whitespace..."
+            git diff --check
+          fi
+
+  backend:
+    name: Backend Test Suite (Java 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up JDK 21 (Eclipse Temurin)
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: 'backend/pom.xml'
+
+      - name: Execute Backend Tests
+        working-directory: backend
+        run: mvn --batch-mode --no-transfer-progress test
+
+  frontend:
+    name: Frontend Build (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9 # v4.2.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install dependencies cleanly
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend bundle
+        working-directory: frontend
+        run: npm run build
