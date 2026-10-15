@@ -92,7 +92,7 @@ The CI pipeline automatically validates every pull request and branch push targe
 - **Action Pinning**: Third-party GitHub actions are pinned to immutable 40-character commit SHAs with version comments to protect against supply-chain compromise:
   - `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683` (`v4.2.2`)
   - `actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00` (`v4.7.1`)
-  - `actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9` (`v4.2.0`)
+  - `actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a` (`v4.2.0`)
 - **No Artifact or Registry Leakage**: The pipeline does not upload secrets as workflow artifacts, and never publishes built container images to any public or private registry.
 
 ---

@@ -1,0 +1,301 @@
+name: Release Readiness & Versioned Image Preparation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Semantic release version (e.g. 2.0.0-rc1, 2.0.0). Leave blank for commit SHA-only verification.'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    name: Validate Release Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.version-calc.outputs.short_sha }}
+      release_version: ${{ steps.version-calc.outputs.release_version }}
+      has_release_version: ${{ steps.version-calc.outputs.has_release_version }}
+      backend_sha_tag: ${{ steps.version-calc.outputs.backend_sha_tag }}
+      frontend_sha_tag: ${{ steps.version-calc.outputs.frontend_sha_tag }}
+      backend_version_tag: ${{ steps.version-calc.outputs.backend_version_tag }}
+      frontend_version_tag: ${{ steps.version-calc.outputs.frontend_version_tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate Release Version Input
+        id: version-calc
+        run: |
+          RAW_VERSION="${{ github.event.inputs.release_version }}"
+          VERSION=$(echo "$RAW_VERSION" | xargs)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+
+          echo "Short SHA: $SHORT_SHA"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "backend_sha_tag=ai-code-review-backend:$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "frontend_sha_tag=ai-code-review-frontend:$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$VERSION" ]; then
+            # Guard against overwriting or conflicting with v1.0.0 release history
+            if [ "$VERSION" = "1.0.0" ] || [ "$VERSION" = "v1.0.0" ]; then
+              echo "::error::Release version '$VERSION' conflicts with existing release tag v1.0.0. The v1.0.0 release tag and history must remain untouched."
+              exit 1
+            fi
+
+            # Validate Semantic Version format: optional leading 'v', major.minor.patch, optional -prerelease (+build metadata optional)
+            SEMVER_REGEX="^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$"
+            if ! echo "$VERSION" | grep -Eq "$SEMVER_REGEX"; then
+              echo "::error::Invalid release version '$VERSION'. Must follow Semantic Versioning (e.g., 2.0.0, v2.0.0, 2.0.0-rc1)."
+              exit 1
+            fi
+
+            echo "Valid release version detected: $VERSION"
+            echo "release_version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "has_release_version=true" >> "$GITHUB_OUTPUT"
+            echo "backend_version_tag=ai-code-review-backend:$VERSION" >> "$GITHUB_OUTPUT"
+            echo "frontend_version_tag=ai-code-review-frontend:$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release version specified; proceeding with commit SHA verification only."
+            echo "release_version=" >> "$GITHUB_OUTPUT"
+            echo "has_release_version=false" >> "$GITHUB_OUTPUT"
+            echo "backend_version_tag=" >> "$GITHUB_OUTPUT"
+            echo "frontend_version_tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+  backend:
+    name: Backend Test Suite (Java 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up JDK 21 (Eclipse Temurin)
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: 'backend/pom.xml'
+
+      - name: Execute Backend Tests
+        working-directory: backend
+        run: mvn --batch-mode --no-transfer-progress test
+
+  frontend:
+    name: Frontend Build (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install dependencies cleanly
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend bundle
+        working-directory: frontend
+        run: npm run build
+
+  docker-verification:
+    name: Docker Build & Compose Validation
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, backend, frontend]
+    outputs:
+      compose_status: ${{ steps.compose-check.outputs.status }}
+      backend_images: ${{ steps.build-backend.outputs.tags }}
+      frontend_images: ${{ steps.build-frontend.outputs.tags }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate Docker Compose configuration
+        id: compose-check
+        run: |
+          echo "Validating Docker Compose configurations..."
+
+          # Validate development configuration syntax and structure (suppress resolved config output to prevent secret leakage)
+          docker compose -f docker-compose.yml config --quiet
+
+          # Validate production configuration syntax and structure
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+
+          # Verify that development Compose includes expected services
+          DEV_SERVICES=$(docker compose -f docker-compose.yml config --services)
+          for SERVICE in postgres backend frontend; do
+            if ! echo "$DEV_SERVICES" | grep -E "(^|[[:space:]])${SERVICE}([[:space:]]|$)"; then
+              echo "Error: Expected service '$SERVICE' not found in development compose configuration"
+              exit 1
+            fi
+          done
+          echo "Base Compose services verified: postgres, backend, frontend"
+
+          # Verify that production Compose includes expected services
+          PROD_SERVICES=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --services)
+          for SERVICE in postgres backend frontend; do
+            if ! echo "$PROD_SERVICES" | grep -E "(^|[[:space:]])${SERVICE}([[:space:]]|$)"; then
+              echo "Error: Expected service '$SERVICE' not found in production compose configuration"
+              exit 1
+            fi
+          done
+          echo "Production Compose services verified: postgres, backend, frontend"
+
+          # Verify production configuration does not expose PostgreSQL port on host
+          if command -v jq >/dev/null 2>&1; then
+            POSTGRES_PORTS_COUNT=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json | jq -r '.services.postgres.ports // [] | length')
+          else
+            POSTGRES_PORTS_COUNT=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('services', {}).get('postgres', {}).get('ports') or []))")
+          fi
+
+          if [ "$POSTGRES_PORTS_COUNT" != "0" ]; then
+            echo "Security Error: PostgreSQL publishes host ports in production Compose configuration!"
+            exit 1
+          fi
+          echo "Production security check passed: PostgreSQL host ports are completely unexposed (count: 0)"
+          echo "status=passed" >> "$GITHUB_OUTPUT"
+
+      - name: Build versioned backend Docker image
+        id: build-backend
+        run: |
+          BACKEND_TAGS="-t ${{ needs.validate-inputs.outputs.backend_sha_tag }}"
+          IMAGE_TAG_LIST="${{ needs.validate-inputs.outputs.backend_sha_tag }}"
+
+          if [ "${{ needs.validate-inputs.outputs.has_release_version }}" = "true" ]; then
+            BACKEND_TAGS="$BACKEND_TAGS -t ${{ needs.validate-inputs.outputs.backend_version_tag }}"
+            IMAGE_TAG_LIST="$IMAGE_TAG_LIST, ${{ needs.validate-inputs.outputs.backend_version_tag }}"
+          fi
+
+          echo "Building backend container image with tags: $IMAGE_TAG_LIST"
+          docker build $BACKEND_TAGS --file backend/Dockerfile backend
+
+          # Verify image existence in local daemon
+          docker image inspect "${{ needs.validate-inputs.outputs.backend_sha_tag }}" > /dev/null
+          echo "tags=$IMAGE_TAG_LIST" >> "$GITHUB_OUTPUT"
+
+      - name: Build versioned frontend Docker image
+        id: build-frontend
+        run: |
+          FRONTEND_TAGS="-t ${{ needs.validate-inputs.outputs.frontend_sha_tag }}"
+          IMAGE_TAG_LIST="${{ needs.validate-inputs.outputs.frontend_sha_tag }}"
+
+          if [ "${{ needs.validate-inputs.outputs.has_release_version }}" = "true" ]; then
+            FRONTEND_TAGS="$FRONTEND_TAGS -t ${{ needs.validate-inputs.outputs.frontend_version_tag }}"
+            IMAGE_TAG_LIST="$IMAGE_TAG_LIST, ${{ needs.validate-inputs.outputs.frontend_version_tag }}"
+          fi
+
+          echo "Building frontend container image with tags: $IMAGE_TAG_LIST"
+          docker build --build-arg VITE_API_BASE_URL=/api/v1 $FRONTEND_TAGS --file frontend/Dockerfile frontend
+
+          # Verify image existence in local daemon
+          docker image inspect "${{ needs.validate-inputs.outputs.frontend_sha_tag }}" > /dev/null
+          echo "tags=$IMAGE_TAG_LIST" >> "$GITHUB_OUTPUT"
+
+      - name: List built local images
+        run: |
+          echo "Verifying prepared local container images:"
+          docker images --filter "reference=ai-code-review-*" --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"
+
+  summary:
+    name: Release Readiness Manifest
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, backend, frontend, docker-verification]
+    if: always()
+    steps:
+      - name: Generate Non-Secret Release Readiness Summary
+        run: |
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${{ needs.validate-inputs.outputs.short_sha || 'N/A' }}"
+          RELEASE_VER="${{ needs.validate-inputs.outputs.release_version || 'None (commit SHA-only verification)' }}"
+          REF_NAME="${{ github.ref_name }}"
+
+          VAL_INPUT_RES="${{ needs.validate-inputs.result }}"
+          BACKEND_RES="${{ needs.backend.result }}"
+          FRONTEND_RES="${{ needs.frontend.result }}"
+          DOCKER_RES="${{ needs.docker-verification.result }}"
+
+          BACKEND_TAGS="${{ needs.docker-verification.outputs.backend_images || 'Not built' }}"
+          FRONTEND_TAGS="${{ needs.docker-verification.outputs.frontend_images || 'Not built' }}"
+
+          if [ "$VAL_INPUT_RES" = "success" ] && [ "$BACKEND_RES" = "success" ] && [ "$FRONTEND_RES" = "success" ] && [ "$DOCKER_RES" = "success" ]; then
+            OVERALL_STATUS="READY FOR RELEASE"
+          else
+            OVERALL_STATUS="BLOCKED"
+          fi
+
+          cat << 'EOF' > release-summary.md
+# Release Readiness & Versioned Image Manifest
+
+## Overview
+EOF
+
+          echo "- **Status**: $OVERALL_STATUS" >> release-summary.md
+          echo "- **Git Commit**: \`$COMMIT_SHA\` (short: \`$SHORT_SHA\`)" >> release-summary.md
+          echo "- **Git Branch / Ref**: \`$REF_NAME\`" >> release-summary.md
+          echo "- **Requested Release Version**: \`$RELEASE_VER\`" >> release-summary.md
+          echo "- **Workflow Run**: [Run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> release-summary.md
+
+          cat << 'EOF' >> release-summary.md
+
+## Quality Gate Verification Summary
+
+| Quality Gate | Job | Result | Scope / Details |
+|---|---|---|---|
+EOF
+
+          echo "| Release Input Validation | \`validate-inputs\` | $VAL_INPUT_RES | SemVer regex check and v1.0.0 collision prevention |" >> release-summary.md
+          echo "| Backend Test Suite | \`backend\` | $BACKEND_RES | Java 21 Temurin, Maven batch test suite |" >> release-summary.md
+          echo "| Frontend Production Build | \`frontend\` | $FRONTEND_RES | Node 20 LTS, npm ci, Vite production build |" >> release-summary.md
+          echo "| Docker Compose & Port Isolation | \`docker-verification\` | $DOCKER_RES | Dev & prod configs, service integrity, postgres port isolation |" >> release-summary.md
+          echo "| Multi-stage Image Builds | \`docker-verification\` | $DOCKER_RES | Backend and frontend Docker images built locally |" >> release-summary.md
+
+          cat << 'EOF' >> release-summary.md
+
+## Local Versioned Docker Images Prepared
+
+EOF
+
+          echo "- **Backend Image Tags**: \`$BACKEND_TAGS\`" >> release-summary.md
+          echo "- **Frontend Image Tags**: \`$FRONTEND_TAGS\`" >> release-summary.md
+
+          cat << 'EOF' >> release-summary.md
+
+## Release & Security Safeguards
+
+> [!IMPORTANT]
+> **Release Boundary Notice**:
+> - This workflow is a **dry-run release verification and readiness assessment**.
+> - **NO** Docker images were pushed or published to any registry (Docker Hub, GHCR, or private registries).
+> - **NO** Git tags were created or modified. The V1 release tag \`v1.0.0\` remains untouched.
+> - **NO** GitHub releases were generated.
+> - **NO** automated deployments or changes to production infrastructure were initiated.
+> - **NO** production secrets, credentials, or resolved Compose configurations were logged or exposed.
+> - Runtime production-equivalent verification must occur in a dedicated staging environment prior to final promotion.
+EOF
+
+          cat release-summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat release-summary.md
+
+      - name: Enforce Overall Readiness Gate
+        run: |
+          if [ "${{ needs.validate-inputs.result }}" != "success" ] || \
+             [ "${{ needs.backend.result }}" != "success" ] || \
+             [ "${{ needs.frontend.result }}" != "success" ] || \
+             [ "${{ needs.docker-verification.result }}" != "success" ]; then
+            echo "::error::One or more release readiness gates failed. Release readiness blocked."
+            exit 1
+          fi
+          echo "All release readiness quality gates passed successfully."
