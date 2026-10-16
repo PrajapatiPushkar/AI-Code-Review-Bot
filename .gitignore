@@ -127,3 +127,12 @@ logs/
 *.log
 tmp/
 temp/
+
+# ==========================================
+# Security Scanning & SBOM Reports
+# ==========================================
+*.cdx.json
+sbom-*.json
+trivy-*.json
+trivy-*.txt
+.trivy/

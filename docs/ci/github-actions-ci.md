@@ -66,7 +66,14 @@ The CI pipeline automatically validates every pull request and branch push targe
    - **Production Security Check**: Verifies that production Compose output leaves the PostgreSQL port completely unexposed to the host (`postgres.ports` length == 0).
    - **Backend Image Build**: Builds the backend image `ai-code-review-backend:ci-validate` from `backend/Dockerfile` using the multi-stage Maven build (Java 21 Temurin). Verifies that dependency resolution, compilation, and JAR packaging succeed without errors.
    - **Frontend Image Build**: Builds the frontend image `ai-code-review-frontend:ci-validate` from `frontend/Dockerfile` passing `--build-arg VITE_API_BASE_URL=/api/v1`. Verifies that Vite compilation and Nginx reverse-proxy configuration succeed without depending on runtime browser resolution of internal container hostnames.
-   - **Build Validation Only**: Images are built strictly locally on the runner to validate syntax and compilation; no images are pushed or published to Docker Hub, GHCR, or any registry.
+   - **Software Bill of Materials (SBOM)**: Generates comprehensive CycloneDX JSON SBOMs (`sbom-backend-cyclonedx.json` and `sbom-frontend-cyclonedx.json`) for both built images using Aqua Security Trivy, inventorying OS packages, Java runtime libraries, and Node runtime packages.
+   - **Container Vulnerability Scanning**: Scans both built container images for CRITICAL and HIGH severity CVEs using Trivy (`aquasecurity/trivy-action`), outputting machine-readable JSON reports (`trivy-backend-results.json` and `trivy-frontend-results.json`).
+   - **Security Policy Enforcement**: Evaluates scan results:
+     - All CRITICAL vulnerabilities (both fixable and unfixed) fail the security gate by default unless an explicitly approved, time-bounded, unexpired exception is documented in `.trivyignore`.
+     - Validates `.trivyignore` entries for required expiration dates (`exp:YYYY-MM-DD`), maintainer approvers (`[APPROVER=username]`), and justifications; rejects expired or malformed exceptions.
+     - Emits workflow warnings for fixable HIGH vulnerabilities to prompt scheduled upgrades, and records all findings in uploaded reports for auditability.
+   - **Artifact Retention**: Uploads all vulnerability reports and SBOM files to the workflow run artifacts bundle `container-security-reports-and-sboms-ci` with a 14-day retention period. Upload occurs unconditionally (`if: always()`) so reports remain available even if a vulnerability fails the build.
+   - **Build Validation Only**: Images are built strictly locally on the runner to validate syntax, compilation, and security posture; no images are pushed or published to Docker Hub, GHCR, or any registry.
 
 ---
 
@@ -93,6 +100,8 @@ The CI pipeline automatically validates every pull request and branch push targe
   - `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683` (`v4.2.2`)
   - `actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00` (`v4.7.1`)
   - `actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a` (`v4.2.0`)
+  - `aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25` (`v0.36.0`)
+  - `actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1` (`v4.6.1`)
 - **No Artifact or Registry Leakage**: The pipeline does not upload secrets as workflow artifacts, and never publishes built container images to any public or private registry.
 
 ---
@@ -156,6 +165,23 @@ docker build --build-arg VITE_API_BASE_URL=/api/v1 -t ai-code-review-frontend:ci
 Expected output:
 - Backend multi-stage build finishes with compiled `app.jar` packaged into `eclipse-temurin:21-jre-alpine`.
 - Frontend multi-stage build finishes with Vite production bundle served via `nginx:alpine`.
+
+### 6. Container Security Scanning & SBOM Generation (Trivy)
+> [!NOTE]
+> Requires the [Trivy CLI](https://aquasecurity.github.io/trivy/) installed locally and a running Docker daemon.
+
+```bash
+# Generate CycloneDX SBOMs for built images
+trivy image --format cyclonedx --output sbom-backend-cyclonedx.json ai-code-review-backend:ci-validate
+trivy image --format cyclonedx --output sbom-frontend-cyclonedx.json ai-code-review-frontend:ci-validate
+
+# Scan container images for CRITICAL and HIGH vulnerabilities
+trivy image --severity CRITICAL,HIGH ai-code-review-backend:ci-validate
+trivy image --severity CRITICAL,HIGH ai-code-review-frontend:ci-validate
+```
+Expected output:
+- Zero unexcepted CRITICAL vulnerabilities (both fixable and unfixed).
+- Machine-readable CycloneDX JSON component inventory produced.
 
 ---
 

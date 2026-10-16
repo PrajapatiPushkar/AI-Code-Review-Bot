@@ -209,6 +209,228 @@ jobs:
           echo "Verifying prepared local container images:"
           docker images --filter "reference=ai-code-review-*" --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"
 
+      - name: Generate CycloneDX SBOM for backend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ needs.validate-inputs.outputs.backend_sha_tag }}
+          format: 'cyclonedx'
+          output: 'sbom-backend-cyclonedx.json'
+
+      - name: Generate CycloneDX SBOM for frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        if: success() || failure()
+        with:
+          image-ref: ${{ needs.validate-inputs.outputs.frontend_sha_tag }}
+          format: 'cyclonedx'
+          output: 'sbom-frontend-cyclonedx.json'
+
+      - name: Scan backend Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        if: success() || failure()
+        with:
+          image-ref: ${{ needs.validate-inputs.outputs.backend_sha_tag }}
+          format: 'json'
+          output: 'trivy-backend-results.json'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: '.trivyignore'
+
+      - name: Scan frontend Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        if: success() || failure()
+        with:
+          image-ref: ${{ needs.validate-inputs.outputs.frontend_sha_tag }}
+          format: 'json'
+          output: 'trivy-frontend-results.json'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: '.trivyignore'
+
+      - name: Upload Security Reports and SBOM Artifacts
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: release-security-reports-and-sboms
+          path: |
+            sbom-backend-cyclonedx.json
+            sbom-frontend-cyclonedx.json
+            trivy-backend-results.json
+            trivy-frontend-results.json
+          retention-days: 14
+
+      - name: Audit Vulnerability Scan Results and Enforce Security Gate
+        if: success() || failure()
+        run: |
+          python3 - << 'EOF'
+          import datetime
+          import json
+          import os
+          import re
+          import sys
+
+          def validate_trivyignore(path='.trivyignore'):
+              print("========================================================")
+              print(" Validating .trivyignore Exception Policy")
+              print("========================================================")
+              if not os.path.exists(path):
+                  print(f"No ignore file found at '{path}'. Proceeding with default zero-exception policy.")
+                  return set()
+
+              with open(path, 'r', encoding='utf-8') as f:
+                  lines = f.readlines()
+
+              approved_exceptions = set()
+              today = datetime.datetime.now(datetime.timezone.utc).date()
+              has_errors = False
+
+              for idx, raw_line in enumerate(lines, 1):
+                  line = raw_line.strip()
+                  if not line or line.startswith('#'):
+                      continue
+
+                  parts = line.split('#', 1)
+                  rule_part = parts[0].strip()
+                  comment_part = parts[1].strip() if len(parts) > 1 else ""
+
+                  tokens = rule_part.split()
+                  if not tokens:
+                      continue
+                  vuln_id = tokens[0]
+
+                  expiry_match = re.search(r'exp:(\d{4}-\d{2}-\d{2})', rule_part) or re.search(r'\[EXPIRY=(\d{4}-\d{2}-\d{2})\]', comment_part)
+                  if not expiry_match:
+                      print(f"::error::.trivyignore line {idx}: Missing required expiration date (exp:YYYY-MM-DD or [EXPIRY=YYYY-MM-DD]) for '{vuln_id}'.")
+                      has_errors = True
+                      continue
+
+                  expiry_str = expiry_match.group(1)
+                  try:
+                      expiry_date = datetime.date.fromisoformat(expiry_str)
+                  except ValueError:
+                      print(f"::error::.trivyignore line {idx}: Invalid expiration date format '{expiry_str}' for '{vuln_id}'. Expected YYYY-MM-DD.")
+                      has_errors = True
+                      continue
+
+                  if expiry_date < today:
+                      print(f"::error::.trivyignore line {idx}: Exception for '{vuln_id}' expired on {expiry_date} (today: {today}). Expired exceptions are rejected.")
+                      has_errors = True
+                      continue
+
+                  approver_match = re.search(r'\[APPROVER=([^\]]+)\]', comment_part)
+                  if not approver_match or not approver_match.group(1).strip():
+                      print(f"::error::.trivyignore line {idx}: Missing required maintainer approver ([APPROVER=username]) for '{vuln_id}'.")
+                      has_errors = True
+                      continue
+
+                  justification = re.sub(r'\[EXPIRY=[^\]]+\]', '', comment_part)
+                  justification = re.sub(r'\[APPROVER=[^\]]+\]', '', justification).strip()
+                  if not justification:
+                      print(f"::error::.trivyignore line {idx}: Missing documented justification for '{vuln_id}'.")
+                      has_errors = True
+                      continue
+
+                  approved_exceptions.add(vuln_id)
+                  print(f" - Validated exception: {vuln_id} (Expires: {expiry_date}, Approver: {approver_match.group(1).strip()})")
+
+              if has_errors:
+                  print("\n::error::Security Gate FAILED: .trivyignore validation failed. All exceptions must have unexpired dates, approvers, and justifications.")
+                  sys.exit(1)
+
+              print(f"Validated {len(approved_exceptions)} approved, unexpired exception(s).")
+              return approved_exceptions
+
+          def parse_report(path, service_name):
+              print(f"\n========================================================")
+              print(f" Security Vulnerability Findings: {service_name}")
+              print(f"========================================================")
+              if not os.path.exists(path):
+                  print(f"::error::Required vulnerability scan report '{path}' was not generated. Scan step may have failed.")
+                  sys.exit(1)
+
+              try:
+                  with open(path, 'r', encoding='utf-8') as f:
+                      data = json.load(f)
+              except Exception as e:
+                  print(f"::error::Failed to parse scan report '{path}': {e}")
+                  sys.exit(1)
+
+              crit_fixed, crit_unfixed = 0, 0
+              high_fixed, high_unfixed = 0, 0
+              findings = []
+
+              for target in data.get('Results', []) or []:
+                  t_name = target.get('Target', 'unknown')
+                  for vuln in target.get('Vulnerabilities', []) or []:
+                      vid = vuln.get('VulnerabilityID', 'UNKNOWN')
+                      pkg = vuln.get('PkgName', 'UNKNOWN')
+                      installed = vuln.get('InstalledVersion', 'UNKNOWN')
+                      fixed = vuln.get('FixedVersion', '')
+                      sev = vuln.get('Severity', 'UNKNOWN')
+
+                      if sev == 'CRITICAL':
+                          if fixed:
+                              crit_fixed += 1
+                          else:
+                              crit_unfixed += 1
+                      elif sev == 'HIGH':
+                          if fixed:
+                              high_fixed += 1
+                          else:
+                              high_unfixed += 1
+
+                      findings.append({
+                          'target': t_name,
+                          'id': vid,
+                          'pkg': pkg,
+                          'installed': installed,
+                          'fixed': fixed if fixed else 'None (unfixed)',
+                          'severity': sev
+                      })
+
+              if not findings:
+                  print(f"No CRITICAL or HIGH vulnerabilities detected in {service_name}.")
+              else:
+                  print(f"Total findings for {service_name}: {len(findings)}")
+                  for item in findings:
+                      status = f"Fix available: {item['fixed']}" if item['fixed'] != 'None (unfixed)' else "No upstream fix yet"
+                      print(f" - [{item['severity']}] {item['pkg']} {item['installed']} ({item['id']}) | {status} | Target: {item['target']}")
+
+              print(f"\nSummary for {service_name}:")
+              print(f" - Fixable CRITICAL: {crit_fixed}")
+              print(f" - Unfixed CRITICAL: {crit_unfixed}")
+              print(f" - Fixable HIGH:     {high_fixed}")
+              print(f" - Unfixed HIGH:     {high_unfixed}")
+
+              return crit_fixed, crit_unfixed, high_fixed, high_unfixed
+
+          validate_trivyignore('.trivyignore')
+
+          b_cf, b_cu, b_hf, b_hu = parse_report('trivy-backend-results.json', 'Backend Container Image')
+          f_cf, f_cu, f_hf, f_hu = parse_report('trivy-frontend-results.json', 'Frontend Container Image')
+
+          total_crit_fixed = b_cf + f_cf
+          total_crit_unfixed = b_cu + f_cu
+          total_crit = total_crit_fixed + total_crit_unfixed
+          total_high_fixed = b_hf + f_hf
+          total_high_unfixed = b_hu + f_hu
+
+          print("\n========================================================")
+          print(" Vulnerability Policy Gate Evaluation")
+          print("========================================================")
+          print(f"Total Fixable CRITICAL Findings: {total_crit_fixed}")
+          print(f"Total Unfixed CRITICAL Findings: {total_crit_unfixed}")
+          print(f"Total Combined CRITICAL Findings: {total_crit}")
+          print(f"Total Fixable HIGH Findings:     {total_high_fixed}")
+          print(f"Total Unfixed HIGH Findings:     {total_high_unfixed}")
+
+          if total_crit > 0:
+              print(f"\n::error::Security Gate FAILED: Detected {total_crit} CRITICAL vulnerability(ies) ({total_crit_fixed} fixable, {total_crit_unfixed} unfixed). All CRITICAL vulnerabilities fail the security gate by default unless an approved, unexpired exception is documented in .trivyignore.")
+              sys.exit(1)
+
+          if total_high_fixed > 0:
+              print(f"\n::warning::Detected {total_high_fixed} fixable HIGH vulnerability(ies). Review and schedule dependency upgrades.")
+
+          print("\nSecurity gate policy check passed successfully.")
+          EOF
+
   summary:
     name: Release Readiness Manifest
     runs-on: ubuntu-latest
@@ -236,11 +458,11 @@ jobs:
             OVERALL_STATUS="BLOCKED"
           fi
 
-          cat << 'EOF' > release-summary.md
-# Release Readiness & Versioned Image Manifest
+          cat << 'EOF' | sed 's/^          //' > release-summary.md
+          # Release Readiness & Versioned Image Manifest
 
-## Overview
-EOF
+          ## Overview
+          EOF
 
           echo "- **Status**: $OVERALL_STATUS" >> release-summary.md
           echo "- **Git Commit**: \`$COMMIT_SHA\` (short: \`$SHORT_SHA\`)" >> release-summary.md
@@ -248,43 +470,53 @@ EOF
           echo "- **Requested Release Version**: \`$RELEASE_VER\`" >> release-summary.md
           echo "- **Workflow Run**: [Run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> release-summary.md
 
-          cat << 'EOF' >> release-summary.md
+          cat << 'EOF' | sed 's/^          //' >> release-summary.md
 
-## Quality Gate Verification Summary
+          ## Quality Gate Verification Summary
 
-| Quality Gate | Job | Result | Scope / Details |
-|---|---|---|---|
-EOF
+          | Quality Gate | Job | Result | Scope / Details |
+          |---|---|---|---|
+          EOF
 
           echo "| Release Input Validation | \`validate-inputs\` | $VAL_INPUT_RES | SemVer regex check and v1.0.0 collision prevention |" >> release-summary.md
           echo "| Backend Test Suite | \`backend\` | $BACKEND_RES | Java 21 Temurin, Maven batch test suite |" >> release-summary.md
           echo "| Frontend Production Build | \`frontend\` | $FRONTEND_RES | Node 20 LTS, npm ci, Vite production build |" >> release-summary.md
           echo "| Docker Compose & Port Isolation | \`docker-verification\` | $DOCKER_RES | Dev & prod configs, service integrity, postgres port isolation |" >> release-summary.md
           echo "| Multi-stage Image Builds | \`docker-verification\` | $DOCKER_RES | Backend and frontend Docker images built locally |" >> release-summary.md
+          echo "| Container Vulnerability Scanning | \`docker-verification\` | $DOCKER_RES | Trivy scan for CRITICAL/HIGH CVEs on candidate container images |" >> release-summary.md
+          echo "| CycloneDX SBOM Generation | \`docker-verification\` | $DOCKER_RES | Component inventories generated for candidate backend & frontend images |" >> release-summary.md
 
-          cat << 'EOF' >> release-summary.md
+          cat << 'EOF' | sed 's/^          //' >> release-summary.md
 
-## Local Versioned Docker Images Prepared
+          ## Local Versioned Docker Images Prepared
 
-EOF
+          EOF
 
           echo "- **Backend Image Tags**: \`$BACKEND_TAGS\`" >> release-summary.md
           echo "- **Frontend Image Tags**: \`$FRONTEND_TAGS\`" >> release-summary.md
 
-          cat << 'EOF' >> release-summary.md
+          cat << 'EOF' | sed 's/^          //' >> release-summary.md
 
-## Release & Security Safeguards
+          ## Security & SBOM Artifacts Generated
 
-> [!IMPORTANT]
-> **Release Boundary Notice**:
-> - This workflow is a **dry-run release verification and readiness assessment**.
-> - **NO** Docker images were pushed or published to any registry (Docker Hub, GHCR, or private registries).
-> - **NO** Git tags were created or modified. The V1 release tag \`v1.0.0\` remains untouched.
-> - **NO** GitHub releases were generated.
-> - **NO** automated deployments or changes to production infrastructure were initiated.
-> - **NO** production secrets, credentials, or resolved Compose configurations were logged or exposed.
-> - Runtime production-equivalent verification must occur in a dedicated staging environment prior to final promotion.
-EOF
+          - **Artifact Bundle**: \`release-security-reports-and-sboms\` (retention: 14 days)
+            - \`sbom-backend-cyclonedx.json\`: CycloneDX Software Bill of Materials for backend container image
+            - \`sbom-frontend-cyclonedx.json\`: CycloneDX Software Bill of Materials for frontend container image
+            - \`trivy-backend-results.json\`: Machine-readable Trivy vulnerability report for backend container image
+            - \`trivy-frontend-results.json\`: Machine-readable Trivy vulnerability report for frontend container image
+
+          ## Release & Security Safeguards
+
+          > [!IMPORTANT]
+          > **Release Boundary Notice**:
+          > - This workflow is a **dry-run release verification and readiness assessment**.
+          > - **NO** Docker images were pushed or published to any registry (Docker Hub, GHCR, or private registries).
+          > - **NO** Git tags were created or modified. The V1 release tag \`v1.0.0\` remains untouched.
+          > - **NO** GitHub releases were generated.
+          > - **NO** automated deployments or changes to production infrastructure were initiated.
+          > - **NO** production secrets, credentials, or resolved Compose configurations were logged or exposed.
+          > - Runtime production-equivalent verification must occur in a dedicated staging environment prior to final promotion.
+          EOF
 
           cat release-summary.md >> "$GITHUB_STEP_SUMMARY"
           cat release-summary.md

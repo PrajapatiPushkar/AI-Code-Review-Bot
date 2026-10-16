@@ -1,0 +1,14 @@
+# ==============================================================================
+# AI Code Review Bot - Trivy Vulnerability Exception / Allowlist
+# ==============================================================================
+# Format for temporary, auditable, time-bounded exceptions:
+#   <CVE-ID> exp:YYYY-MM-DD # [APPROVER=username] Justification
+# Example:
+#   CVE-2024-0000 exp:2026-12-31 # [APPROVER=security-lead] Upstream fix pending, risk mitigated by non-root execution
+#
+# RULES FOR EXCEPTIONS:
+# 1. Broad suppression of vulnerability classes is strictly prohibited.
+# 2. Every entry must include an explicit, unexpired expiration date (exp:YYYY-MM-DD or [EXPIRY=YYYY-MM-DD]).
+# 3. Every entry must include maintainer approval ([APPROVER=username]) and documented justification.
+# 4. Once an upstream fix is published, the exception must be removed immediately.
+# ==============================================================================
