@@ -54,7 +54,7 @@ class GithubInstallationTokenClientTest {
     void testRequestInstallationToken_Success() {
         String responseJson = """
                 {
-                  "token": "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+                  "token": "mock-installation-token-test-value-12345",
                   "expires_at": "2026-08-13T22:30:00Z"
                 }
                 """;
@@ -69,7 +69,7 @@ class GithubInstallationTokenClientTest {
         GithubInstallationTokenResponse response = tokenClient.requestInstallationToken(98765432L);
 
         assertThat(response).isNotNull();
-        assertThat(response.getToken()).isEqualTo("ghs_16C7e42F292c6912E7710c838347Ae178B4a");
+        assertThat(response.getToken()).isEqualTo("mock-installation-token-test-value-12345");
         assertThat(response.getExpiresAt()).isEqualTo(Instant.parse("2026-08-13T22:30:00Z"));
 
         mockServer.verify();

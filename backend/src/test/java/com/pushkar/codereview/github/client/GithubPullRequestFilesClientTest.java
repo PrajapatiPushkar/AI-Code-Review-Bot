@@ -28,7 +28,7 @@ class GithubPullRequestFilesClientTest {
     private MockRestServiceServer mockServer;
     private GithubPullRequestFilesClient filesClient;
 
-    private static final String MOCK_TOKEN = "ghs_16C7e42F292c6912E7710c838347Ae178B4a";
+    private static final String MOCK_TOKEN = "mock-installation-token-test-value-12345";
     private static final String BASE_URL = "https://api.github.com";
     private static final Long INSTALLATION_ID = 123456L;
     private static final String OWNER = "octocat";

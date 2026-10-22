@@ -21,14 +21,9 @@ import java.util.List;
 
 public class RealGithubAppVerificationTest {
 
-    private static final String DEFAULT_KEY_PATH = "C:/Users/kppus/Downloads/pushkar-ai-code-review-bot.2026-08-18.private-key (1).pem";
-
     static boolean hasKeyFile() {
         String path = System.getenv("GITHUB_PRIVATE_KEY_PATH");
-        if (path == null || path.isBlank()) {
-            path = DEFAULT_KEY_PATH;
-        }
-        return new File(path).exists();
+        return path != null && !path.isBlank() && new File(path).exists();
     }
 
     @Test
@@ -38,7 +33,7 @@ public class RealGithubAppVerificationTest {
 
         String keyPath = System.getenv("GITHUB_PRIVATE_KEY_PATH");
         if (keyPath == null || keyPath.isBlank()) {
-            keyPath = DEFAULT_KEY_PATH;
+            keyPath = "secrets/github-app-private-key.pem";
         }
 
         GithubProperties props = new GithubProperties();
