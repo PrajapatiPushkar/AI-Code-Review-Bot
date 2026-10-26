@@ -12,3 +12,7 @@
 # 3. Every entry must include maintainer approval ([APPROVER=username]) and documented justification.
 # 4. Once an upstream fix is published, the exception must be removed immediately.
 # ==============================================================================
+# Temporary Auditable Exceptions (Approved by Maintainer)
+# ==============================================================================
+CVE-2026-47884 exp:2026-11-30 # [APPROVER=pushkar] Upstream OSS fix requires Spring 7 / Boot 4; 6.2.20 is enterprise-only. Mitigated: pure @RestController architecture, XsltView uninstantiated, non-root execution.
+CVE-2026-47890 exp:2026-11-30 # [APPROVER=pushkar] Upstream OSS fix requires Spring 7 / Boot 4; 6.2.20 is enterprise-only. Mitigated: no SSE or view fragment streaming in codebase, non-root execution.
