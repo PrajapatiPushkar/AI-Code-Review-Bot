@@ -1,19 +1,19 @@
 # 🤖 AI Code Review Bot
 
-> An asynchronous, AI-powered GitHub Pull Request review platform built with **Java 21**, **Spring Boot 3.3.2**, **React 18**, **PostgreSQL 16**, **GitHub Apps API**, **Google Gemini 3.6-Flash**, **Docker**, **JWT**, and **Resilience4j**.
+> An asynchronous, AI-powered GitHub Pull Request review platform built with **Java 21**, **Spring Boot 3.3.13**, **React 18**, **PostgreSQL 16**, **GitHub Apps API**, **Google Gemini 3.6-Flash**, **Docker**, **JWT**, and **Resilience4j**.
 
 ---
 
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg?style=flat-square&logo=openjdk)](https://www.oracle.com/java/)
-[![Spring Boot 3.3.2](https://img.shields.io/badge/Spring%20Boot-3.3.2-brightgreen.svg?style=flat-square&logo=springboot)](https://spring.io/projects/spring-boot)
+[![Spring Boot 3.3.13](https://img.shields.io/badge/Spring%20Boot-3.3.13-brightgreen.svg?style=flat-square&logo=springboot)](https://spring.io/projects/spring-boot)
 [![React 18](https://img.shields.io/badge/React-18-blue.svg?style=flat-square&logo=react)](https://react.dev/)
 [![Vite 5](https://img.shields.io/badge/Vite-5-purple.svg?style=flat-square&logo=vite)](https://vitejs.dev/)
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-blue.svg?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
 [![Google Gemini AI](https://img.shields.io/badge/Gemini_AI-3.6--Flash-4285F4.svg?style=flat-square&logo=google)](https://deepmind.google/technologies/gemini/)
 [![GitHub Apps API](https://img.shields.io/badge/GitHub_App-RS256-black.svg?style=flat-square&logo=github)](https://docs.github.com/en/apps)
 [![Docker Containerized](https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg?style=flat-square&logo=docker)](https://www.docker.com/)
-[![Build Status](https://img.shields.io/badge/Tests-260%2F260%20Passed-success.svg?style=flat-square)]()
-[![Production Ready](https://img.shields.io/badge/E2E_Verified-COMPLETED-brightgreen.svg?style=flat-square)]()
+[![Build Status](https://img.shields.io/badge/Tests-499%20Run%20%7C%200%20Failures%20%7C%202%20Skipped-success.svg?style=flat-square)]()
+[![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen.svg?style=flat-square)]()
 
 ---
 
@@ -107,7 +107,15 @@ In modern software development, code review is essential for maintaining code he
 ### ⚙️ Backend Engineering
 * **Stateless JWT Security**: Custom `JwtAuthenticationFilter` with role authorization (`ROLE_USER`, `ROLE_ADMIN`, `ROLE_DEVELOPER`).
 * **Asynchronous Worker Thread Pool**: Delegated execution (`@Async("taskExecutor")`) returning immediate `HTTP 202 Accepted` responses.
-* **Schema Migration Control**: Database version control managed by **Flyway** (`V1__` to `V9__` SQL migrations).
+* **Schema Migration Control**: Database version control managed by **Flyway** (`V1__` to `V13__` SQL migrations).
+
+### 🚀 V2 Platform Innovations
+* **Deterministic Java AST Rules**: Fast local rule evaluation (`RULE-JAVA-EMPTY-CATCH`, `RULE-JAVA-SYSTEM-OUT`, `RULE-TODO-FIXME`) executed prior to and merged with AI findings.
+* **AI Code Fix Proposals & Patch Generator**: Generates contextual git diff patches (`/api/v1/code-reviews/findings/{id}/fix`) with patch syntax validation and status tracking (`PENDING`, `APPLIED`, `REJECTED`).
+* **Configurable Repository Quality Gates**: Evaluates reviews against per-repository policies (`PASSED`, `WARNING`, `FAILED`) enforcing strict severity thresholds.
+* **GitHub Webhook Reliability Engine**: Signature verification (`X-Hub-Signature-256`), idempotent delivery deduplication (`X-GitHub-Delivery`), and automated background retry scheduler.
+* **Observability & Operational Metrics**: Prometheus registry endpoint (`/actuator/prometheus`) exporting review duration, queue sizes, and webhook delivery telemetry.
+* **Container Security & SBOM Supply Chain**: CycloneDX SBOM generation and Aqua Security Trivy container scanning integrated into automated CI pipelines.
 
 ### 🛡️ Reliability & Resilience
 * **Resilience4j Retry Policies**: Retries failed downstream calls to GitHub/Gemini with exponential backoff.
@@ -300,7 +308,7 @@ The AI review engine uses Google's `gemini-3.6-flash` model via the Generative L
 
 ## 8. Database Architecture
 
-The PostgreSQL schema is managed via **Flyway** incremental migrations (`V1__` through `V9__`).
+The PostgreSQL schema is managed via **Flyway** incremental migrations (`V1__` through `V13__`).
 
 ```mermaid
 erDiagram
@@ -359,7 +367,7 @@ erDiagram
 
 ## 9. Backend Architecture
 
-The backend is built with **Spring Boot 3.3.2** using clean layered architecture:
+The backend is built with **Spring Boot 3.3.13** using clean layered architecture:
 
 ```text
 backend/src/main/java/com/pushkar/codereview/
@@ -608,14 +616,52 @@ flowchart TD
 | `GET` | `/api/v1/code-reviews/{id}/status` | Light-weight status check (`IN_PROGRESS`, `COMPLETED`, `FAILED`) | Bearer JWT |
 | `GET` | `/api/v1/code-reviews/{id}/result` | Get full review result and summary | Bearer JWT |
 | `GET` | `/api/v1/code-reviews/{id}/findings` | Get paginated findings for a review ID | Bearer JWT |
+| `GET` | `/api/v1/code-reviews/repository/{owner}/{repository}` | Get review history for a specific repository | Bearer JWT |
 
-### Health & Observability
+### Code Fix Proposal Endpoints
 
 | Method | Endpoint | Description | Auth |
 | :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/code-reviews/findings/{findingId}/fix` | Generate AI-powered code fix proposal | Bearer JWT |
+| `GET` | `/api/v1/code-reviews/findings/{findingId}/fixes` | List all fix proposals for a finding | Bearer JWT |
+| `GET` | `/api/v1/code-reviews/fixes/{proposalId}` | Get details of a fix proposal | Bearer JWT |
+| `PATCH`| `/api/v1/code-reviews/fixes/{proposalId}/status` | Update proposal status (`APPLIED`, `REJECTED`) | Bearer JWT |
+| `GET` | `/api/v1/code-reviews/fixes/{proposalId}/patch` | Download unified git diff patch | Bearer JWT |
+| `GET` | `/api/v1/code-reviews/fixes/{proposalId}/proposed-content` | Download full proposed source content | Bearer JWT |
+| `GET` | `/api/v1/code-reviews/fixes/{proposalId}/original-content` | Download original source content | Bearer JWT |
+
+### Quality Gate & Review Policy Endpoints
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/code-reviews/{reviewId}/quality-gate` | Evaluate quality gate status for a review | Bearer JWT |
+| `GET` | `/api/v1/repositories/{repositoryId}/review-policy` | Fetch configured review policy for repository | Bearer JWT |
+| `PUT` | `/api/v1/repositories/{repositoryId}/review-policy` | Update review policy rules and thresholds | Bearer JWT |
+| `POST`| `/api/v1/repositories/{repositoryId}/review-policy/reset` | Reset repository policy to system defaults | Bearer JWT |
+
+### Webhook Automation & Delivery Reliability Endpoints
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/webhooks/github` | Ingest GitHub webhook events | `X-Hub-Signature-256` |
+| `GET` | `/api/v1/webhooks/deliveries` | List paginated webhook delivery audit logs | Bearer JWT |
+| `GET` | `/api/v1/webhooks/deliveries/summary` | Webhook delivery volume and failure metrics | Bearer JWT |
+| `GET` | `/api/v1/webhooks/deliveries/{deliveryId}` | Get audit payload for specific delivery | Bearer JWT |
+| `POST`| `/api/v1/webhooks/deliveries/{deliveryId}/retry` | Manually retry a failed webhook delivery | Bearer JWT |
+
+### Analytics & Observability Endpoints
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/analytics/overview` | High-level review and finding volume KPIs | Bearer JWT |
+| `GET` | `/api/v1/analytics/findings` | Aggregated findings grouped by severity/category | Bearer JWT |
+| `GET` | `/api/v1/analytics/trends` | Historical review trend metrics | Bearer JWT |
+| `GET` | `/api/v1/analytics/repositories` | Per-repository review volume and pass rates | Bearer JWT |
+| `GET` | `/api/v1/observability/metrics` | Processing queue sizes, throughput, and status | Bearer JWT |
+| `GET` | `/api/v1/actuator/prometheus` | Prometheus metric scrape endpoint | Bearer JWT |
 | `GET` | `/api/v1/actuator/health` | Comprehensive application health status | Public |
 | `GET` | `/api/v1/actuator/health/liveness` | Kubernetes liveness probe | Public |
-| `GET` | `/api/v1/actuator/health/readiness` | Kubernetes readiness probe | Public |
+| `GET` | `/api/v1/actuator/health/readiness` | Kubernetes readiness probe (validates DB pool) | Public |
 
 ---
 
@@ -636,10 +682,12 @@ The complete pipeline has been verified against a live GitHub Pull Request:
 
 ## 19. Automated Testing & Verification
 
-- **Backend Unit & Integration Tests**: `260 / 260` Passed (`mvn test`)
-- **Frontend Production Build**: Passed (`npm run build` completed in `938ms`)
-- **Git Code Format Check**: Passed (`git diff --check` with zero errors)
-- **Container Deployment**: Verified with 3 active healthy containers
+- **Backend Unit & Integration Tests**: `499` tests run, `0` failures, `0` errors, `2` skipped (`mvn test`). *(Note: The 2 skipped tests are live integration tests in `RealEndToEndCodeReviewVerificationTest` requiring local PostgreSQL and a live GitHub App private key).*
+- **Frontend Production Build**: Passed (`npm run build` completed cleanly via Vite).
+- **Git Code Format Check**: Passed (`git diff --check` with zero whitespace errors).
+- **Container Deployment**: Verified multi-container configurations for development and production (`docker compose config`).
+- **Container Vulnerability Scanning**: Aqua Security Trivy container scans integrated with automated CI policy gates.
+- **Software Supply Chain**: CycloneDX SBOMs generated for backend and frontend container images.
 
 ---
 
@@ -689,7 +737,7 @@ AI-Code-Review-Bot/
 
 ## 21. Key Engineering Decisions
 
-1. **Spring Boot 3.3.2 & Java 21**: Selected for virtual thread capabilities, modern record types, and enterprise ecosystem stability.
+1. **Spring Boot 3.3.13 & Java 21**: Selected for virtual thread capabilities, modern record types, and enterprise ecosystem stability.
 2. **PostgreSQL 16 & Flyway**: Chosen to guarantee relational integrity across code reviews and findings with structured migration versioning.
 3. **GitHub App Over Personal Access Tokens**: Provides fine-grained installation scopes, short-lived tokens, and organizational security compliance.
 4. **Google Gemini 3.6-Flash**: Delivers low latency reasoning performance for code diff comprehension.

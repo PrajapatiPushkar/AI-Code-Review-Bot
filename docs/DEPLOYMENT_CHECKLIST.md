@@ -29,17 +29,30 @@ Ensure the following environment variables are exported on the host system or pr
 ## 2. Status Breakdown (Verified vs Remote)
 
 - **Local Docker Compose Stack**: `VERIFIED LOCALLY` (`docker compose config` warning-free, multi-container configuration validated).
-- **Frontend SPA Build**: `VERIFIED LOCALLY` (`npx vite build` 100% clean).
-- **Backend Test Suite**: `VERIFIED LOCALLY` (258 unit/integration tests passing).
-- **Remote Cloud Deployment**: `NOT AVAILABLE / BLOCKED` (No remote cloud server IP or SSH credentials supplied).
+- **Frontend SPA Build**: `VERIFIED LOCALLY` (`npm run build` / Vite 100% clean).
+- **Backend Test Suite**: `VERIFIED LOCALLY` (499 tests run, 0 failures, 0 errors, 2 skipped live integration tests).
+- **Remote Cloud Deployment**: `NOT AVAILABLE / BLOCKED` (No remote cloud server IP or SSH credentials supplied; deployable via Docker Compose).
 
 ---
 
 ## 3. Pre-Deployment Readiness Audit
 
 - [x] **Secrets & Key Isolation**: Zero `.env` files, `.pem` keys, or passwords committed to Git repository.
-- [x] **Database Migration**: Flyway migrations (`V1__...sql`) present in `backend/src/main/resources/db/migration/`.
-- [x] **Docker Image Security**: Backend Docker container runs under a non-root system user (`appuser`).
+- [x] **Database Migrations (Flyway V1 through V13)**: All 13 migrations verified in `backend/src/main/resources/db/migration/`:
+  - `V1__create_users_table.sql`: User accounts and roles
+  - `V2__create_repositories_table.sql`: Repository tracking and metadata
+  - `V3__create_github_installations_table.sql`: GitHub App installation mapping
+  - `V4__create_code_reviews_table.sql`: Core code review execution records
+  - `V5__add_user_authentication_fields.sql`: User password and auth credentials
+  - `V6__add_user_id_to_code_reviews.sql`: Review-to-user foreign key association
+  - `V7__add_github_installation_verification.sql`: Installation verification tracking
+  - `V8__create_code_review_findings_table.sql`: Line-level review findings
+  - `V9__add_commit_sha_to_code_reviews.sql`: Commit SHA traceability on reviews
+  - `V10__create_code_fix_proposals_table.sql`: AI code fix proposals and diff lifecycle
+  - `V11__create_repository_review_policies_and_quality_gates.sql`: Repository review policies and quality gates
+  - `V12__create_github_webhook_deliveries_table.sql`: Webhook delivery audit and deduplication
+  - `V13__add_webhook_delivery_reliability_and_retry_fields.sql`: Webhook retry scheduling and reliability telemetry
+- [x] **Docker Image Security**: Backend Docker container runs under a non-root system user (`appuser:appgroup`).
 - [x] **Port Security**: PostgreSQL port `5432` is not exposed publicly on host in production configuration (`docker-compose.prod.yml`).
 - [x] **Health Check Probes**: Actuator `/actuator/health` endpoint configured with `/liveness` and `/readiness` probes.
 

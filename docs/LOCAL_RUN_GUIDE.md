@@ -128,17 +128,57 @@ docker compose up -d --build
 
 ## 6. Important API Endpoints
 
-| Category | HTTP Method | Endpoint | Auth Required | Description |
+### Public Endpoints (No Authentication Required)
+
+| Category | HTTP Method | Endpoint | Description |
+|---|---|---|---|
+| **Health** | `GET` | `/api/v1/health` | Custom lightweight public health ping |
+| **Health** | `GET` | `/api/v1/actuator/health` | Spring Boot Actuator component health status |
+| **Health** | `GET` | `/api/v1/actuator/health/liveness` | Container liveness probe |
+| **Health** | `GET` | `/api/v1/actuator/health/readiness` | Container readiness probe (verifies DB connectivity) |
+| **Auth** | `POST` | `/api/v1/auth/register` | Register new user account |
+| **Auth** | `POST` | `/api/v1/auth/login` | Authenticate with credentials and receive Bearer JWT |
+
+### GitHub Webhook Endpoints (Signature-Protected)
+
+| Category | HTTP Method | Endpoint | Security Header | Description |
 |---|---|---|---|---|
-| **Health** | `GET` | `/api/v1/health` | No | Basic health check |
-| **Health** | `GET` | `/api/v1/actuator/health` | No | Spring Actuator health |
-| **Auth** | `POST` | `/api/v1/auth/register` | No | Register new user |
-| **Auth** | `POST` | `/api/v1/auth/login` | No | Login and get JWT |
-| **Reviews** | `GET` | `/api/v1/code-reviews` | Yes | List user's code reviews |
-| **Reviews** | `POST` | `/api/v1/code-reviews/trigger` | Yes | Trigger a new manual code review |
-| **Reviews** | `GET` | `/api/v1/code-reviews/{id}` | Yes | Get code review details by ID |
-| **Reviews** | `GET` | `/api/v1/code-reviews/{id}/findings` | Yes | Get review findings for code review |
-| **GitHub** | `GET` | `/api/v1/github/installations/status` | Yes | Check GitHub App installation status |
+| **Webhook** | `POST` | `/api/v1/webhooks/github` | `X-Hub-Signature-256` | Ingest and verify signed GitHub PR webhook events |
+
+### Authenticated Endpoints (Requires `Authorization: Bearer <JWT>`)
+
+| Category | HTTP Method | Endpoint | Description |
+|---|---|---|---|
+| **Reviews** | `POST` | `/api/v1/code-reviews/pull-request` | Submit manual asynchronous review request (`202 Accepted`) |
+| **Reviews** | `GET` | `/api/v1/code-reviews` | Get paginated review history |
+| **Reviews** | `GET` | `/api/v1/code-reviews/{id}` | Get review metadata by ID |
+| **Reviews** | `GET` | `/api/v1/code-reviews/{id}/status` | Check review execution status (`IN_PROGRESS`, `COMPLETED`, `FAILED`) |
+| **Reviews** | `GET` | `/api/v1/code-reviews/{id}/result` | Get full review result and summary |
+| **Reviews** | `GET` | `/api/v1/code-reviews/{id}/findings` | Get paginated findings for a review |
+| **Reviews** | `GET` | `/api/v1/code-reviews/repository/{owner}/{repository}` | Get review history for a specific repository |
+| **Code Fixes** | `POST` | `/api/v1/code-reviews/findings/{findingId}/fix` | Request AI-generated code fix proposal for a finding |
+| **Code Fixes** | `GET` | `/api/v1/code-reviews/findings/{findingId}/fixes` | List all fix proposals generated for a finding |
+| **Code Fixes** | `GET` | `/api/v1/code-reviews/fixes/{proposalId}` | Get details of a specific fix proposal |
+| **Code Fixes** | `PATCH` | `/api/v1/code-reviews/fixes/{proposalId}/status` | Update proposal status (`APPLIED`, `REJECTED`) |
+| **Code Fixes** | `GET` | `/api/v1/code-reviews/fixes/{proposalId}/patch` | Download unified git diff patch file |
+| **Code Fixes** | `GET` | `/api/v1/code-reviews/fixes/{proposalId}/proposed-content` | Download full proposed source content |
+| **Code Fixes** | `GET` | `/api/v1/code-reviews/fixes/{proposalId}/original-content` | Download original source content |
+| **Quality Gates** | `GET` | `/api/v1/code-reviews/{reviewId}/quality-gate` | Evaluate quality gate status for a review |
+| **Quality Gates** | `GET` | `/api/v1/repositories/{repositoryId}/review-policy` | Fetch configured review policy for repository |
+| **Quality Gates** | `PUT` | `/api/v1/repositories/{repositoryId}/review-policy` | Update review policy rules and thresholds |
+| **Quality Gates** | `POST` | `/api/v1/repositories/{repositoryId}/review-policy/reset` | Reset repository policy to system defaults |
+| **Webhooks** | `GET` | `/api/v1/webhooks/deliveries` | List paginated webhook delivery audit records |
+| **Webhooks** | `GET` | `/api/v1/webhooks/deliveries/summary` | Webhook delivery statistics and reliability KPIs |
+| **Webhooks** | `GET` | `/api/v1/webhooks/deliveries/{deliveryId}` | Get audit payload for specific webhook delivery |
+| **Webhooks** | `POST` | `/api/v1/webhooks/deliveries/{deliveryId}/retry` | Manually retry a failed webhook delivery |
+| **Analytics** | `GET` | `/api/v1/analytics/overview` | High-level review and finding totals |
+| **Analytics** | `GET` | `/api/v1/analytics/findings` | Aggregated findings grouped by severity |
+| **Analytics** | `GET` | `/api/v1/analytics/trends` | Historical review trend metrics |
+| **Analytics** | `GET` | `/api/v1/analytics/repositories` | Per-repository review volume and pass rates |
+| **Observability**| `GET` | `/api/v1/observability/metrics` | Processing queue sizes, throughput, and worker status |
+| **Observability**| `GET` | `/api/v1/actuator/prometheus` | Prometheus-compatible metrics scrape endpoint |
+| **GitHub App** | `GET` | `/api/v1/github/installations/user/{userId}` | List installations belonging to authenticated user |
+| **GitHub App** | `GET` | `/api/v1/github/installations/{installationId}/repositories` | List repositories accessible by installation |
 
 ---
 
