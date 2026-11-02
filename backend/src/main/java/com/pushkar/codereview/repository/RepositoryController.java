@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/repositories")
+@RequestMapping({"/repositories", "/api/v1/repositories"})
 public class RepositoryController {
 
     private final RepositoryService repositoryService;
@@ -28,6 +28,12 @@ public class RepositoryController {
     public ResponseEntity<RepositoryResponse> createRepository(@Valid @RequestBody RepositoryCreateRequest request) {
         RepositoryResponse response = repositoryService.createRepository(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<RepositoryResponse>> getCurrentUserRepositories() {
+        List<RepositoryResponse> responses = repositoryService.getCurrentUserRepositories();
+        return ResponseEntity.ok(responses);
     }
 
     @GetMapping("/{id}")

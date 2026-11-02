@@ -164,10 +164,11 @@ public class RepositoryPolicyService {
         if (currentUserService != null && currentUserService.isAuthenticated()) {
             if (!currentUserService.hasRole("ADMIN")) {
                 Long currentUserId = currentUserService.getCurrentUserId();
-                if (repository.getUser() != null && !repository.getUser().getId().equals(currentUserId)) {
-                    // Do not leak whether an unauthorized private repository exists
-                    log.warn("Access denied for userId={} attempting to access repository ID={} owned by userId={}",
-                            currentUserId, repositoryId, repository.getUser().getId());
+                Long ownerUserId = (repository.getUser() != null) ? repository.getUser().getId() : null;
+                if (currentUserId == null || !currentUserId.equals(ownerUserId)) {
+                    // Do not leak whether an unauthorized private repository exists or who owns it
+                    log.warn("Access denied for userId={} attempting to access repository ID={}",
+                            currentUserId, repositoryId);
                     throw new ResourceNotFoundException("Repository not found with ID: " + repositoryId);
                 }
             }
