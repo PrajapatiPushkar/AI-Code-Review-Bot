@@ -270,11 +270,12 @@ class QualityGateServiceTest {
         @Override public Optional<CodeReview> findOne(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return Optional.empty(); }
         @Override public List<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return new ArrayList<>(database.values()); }
         @Override public Page<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec, Pageable pageable) { return new PageImpl<>(new ArrayList<>(database.values())); }
+        @Override public Page<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec, org.springframework.data.jpa.domain.Specification<CodeReview> countSpec, Pageable pageable) { return findAll(spec, pageable); }
         @Override public List<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec, Sort sort) { return new ArrayList<>(database.values()); }
         @Override public long count(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return database.size(); }
         @Override public boolean exists(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return !database.isEmpty(); }
         @Override public long delete(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return 0; }
-        @Override public <S extends CodeReview, R> R findBy(org.springframework.data.jpa.domain.Specification<CodeReview> spec, Function<FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
+        @Override public <S extends CodeReview, R> R findBy(org.springframework.data.jpa.domain.Specification<CodeReview> spec, Function<? super org.springframework.data.jpa.repository.JpaSpecificationExecutor.SpecificationFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
     }
 
     private static class InMemoryCodeReviewFindingRepository implements CodeReviewFindingRepository {

@@ -340,10 +340,11 @@ class ProductionReliabilityHardeningTest {
         @Override public Optional<CodeReview> findOne(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return Optional.empty(); }
         @Override public List<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return List.of(); }
         @Override public org.springframework.data.domain.Page<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec, org.springframework.data.domain.Pageable pageable) { return null; }
+        @Override public org.springframework.data.domain.Page<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec, org.springframework.data.jpa.domain.Specification<CodeReview> countSpec, org.springframework.data.domain.Pageable pageable) { return null; }
         @Override public List<CodeReview> findAll(org.springframework.data.jpa.domain.Specification<CodeReview> spec, org.springframework.data.domain.Sort sort) { return List.of(); }
         @Override public long count(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return 0; }
         @Override public boolean exists(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return false; }
         @Override public long delete(org.springframework.data.jpa.domain.Specification<CodeReview> spec) { return 0; }
-        @Override public <S extends CodeReview, R> R findBy(org.springframework.data.jpa.domain.Specification<CodeReview> spec, java.util.function.Function<org.springframework.data.repository.query.FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { return null; }
+        @Override public <S extends CodeReview, R> R findBy(org.springframework.data.jpa.domain.Specification<CodeReview> spec, java.util.function.Function<? super org.springframework.data.jpa.repository.JpaSpecificationExecutor.SpecificationFluentQuery<S>, R> queryFunction) { return null; }
     }
 }

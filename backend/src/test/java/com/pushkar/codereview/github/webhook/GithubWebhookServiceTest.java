@@ -766,13 +766,14 @@ class GithubWebhookServiceTest {
         @Override public <S extends GithubWebhookDelivery> List<S> saveAll(Iterable<S> entities) { return List.of(); }
         @Override public List<GithubWebhookDelivery> findAll(org.springframework.data.domain.Sort sort) { return List.of(); }
         @Override public org.springframework.data.domain.Page<GithubWebhookDelivery> findAll(org.springframework.data.domain.Pageable pageable) { return null; }
+        @Override public org.springframework.data.domain.Page<GithubWebhookDelivery> findAll(Specification<GithubWebhookDelivery> spec, Specification<GithubWebhookDelivery> countSpec, org.springframework.data.domain.Pageable pageable) { return null; }
         @Override public List<GithubWebhookDelivery> findAll(Specification<GithubWebhookDelivery> spec) { return list; }
         @Override public List<GithubWebhookDelivery> findAll(Specification<GithubWebhookDelivery> spec, org.springframework.data.domain.Sort sort) { return list; }
         @Override public Optional<GithubWebhookDelivery> findOne(Specification<GithubWebhookDelivery> spec) { return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0)); }
         @Override public long count(Specification<GithubWebhookDelivery> spec) { return list.size(); }
         @Override public boolean exists(Specification<GithubWebhookDelivery> spec) { return !list.isEmpty(); }
         @Override public long delete(Specification<GithubWebhookDelivery> spec) { return 0; }
-        @Override public <S extends GithubWebhookDelivery, R> R findBy(Specification<GithubWebhookDelivery> spec, java.util.function.Function<org.springframework.data.repository.query.FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { return null; }
+        @Override public <S extends GithubWebhookDelivery, R> R findBy(Specification<GithubWebhookDelivery> spec, java.util.function.Function<? super org.springframework.data.jpa.repository.JpaSpecificationExecutor.SpecificationFluentQuery<S>, R> queryFunction) { return null; }
     }
 
     private static class InMemoryInstallationRepository implements GithubInstallationRepository {

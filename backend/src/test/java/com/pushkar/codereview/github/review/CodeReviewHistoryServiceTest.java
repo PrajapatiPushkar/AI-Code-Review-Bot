@@ -447,10 +447,11 @@ class CodeReviewHistoryServiceTest {
             }).toList();
             return new PageImpl<>(list, pageable, list.size());
         }
+        @Override public Page<T> findAll(Specification<T> spec, Specification<T> countSpec, Pageable pageable) { return findAll(spec, pageable); }
         @Override public List<T> findAll(Specification<T> spec, org.springframework.data.domain.Sort sort) { return new ArrayList<>(database.values()); }
         @Override public long count(Specification<T> spec) { return database.size(); }
         @Override public boolean exists(Specification<T> spec) { return !database.isEmpty(); }
         @Override public long delete(Specification<T> spec) { return 0; }
-        @Override public <S extends T, R> R findBy(Specification<T> spec, java.util.function.Function<org.springframework.data.repository.query.FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
+        @Override public <S extends T, R> R findBy(Specification<T> spec, java.util.function.Function<? super org.springframework.data.jpa.repository.JpaSpecificationExecutor.SpecificationFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
     }
 }

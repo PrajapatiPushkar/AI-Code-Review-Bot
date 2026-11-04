@@ -620,10 +620,11 @@ class AnalyticsServiceTest {
         @Override public Optional<T> findOne(Specification<T> spec) { return Optional.empty(); }
         @Override public List<T> findAll(Specification<T> spec) { return new ArrayList<>(database.values()); }
         @Override public Page<T> findAll(Specification<T> spec, Pageable pageable) { return new PageImpl<>(new ArrayList<>(database.values()), pageable, database.size()); }
+        @Override public Page<T> findAll(Specification<T> spec, Specification<T> countSpec, Pageable pageable) { return findAll(spec, pageable); }
         @Override public List<T> findAll(Specification<T> spec, Sort sort) { return new ArrayList<>(database.values()); }
         @Override public long count(Specification<T> spec) { return database.size(); }
         @Override public boolean exists(Specification<T> spec) { return !database.isEmpty(); }
         @Override public long delete(Specification<T> spec) { return 0; }
-        @Override public <S extends T, R> R findBy(Specification<T> spec, Function<FluentQuery.FetchableFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
+        @Override public <S extends T, R> R findBy(Specification<T> spec, Function<? super org.springframework.data.jpa.repository.JpaSpecificationExecutor.SpecificationFluentQuery<S>, R> queryFunction) { throw new UnsupportedOperationException(); }
     }
 }
