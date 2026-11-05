@@ -1,6 +1,7 @@
 package com.pushkar.codereview.github.auth;
 
 import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.pushkar.codereview.config.GithubProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
 import java.util.Base64;
 
@@ -20,6 +22,7 @@ class GithubJwtServiceTest {
     private GithubProperties githubProperties;
     private GithubJwtService githubJwtService;
     private String validPemPrivateKey;
+    private RSAPublicKey publicKey;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -31,6 +34,7 @@ class GithubJwtServiceTest {
         keyPairGenerator.initialize(2048);
         KeyPair keyPair = keyPairGenerator.generateKeyPair();
         PrivateKey privateKey = keyPair.getPrivate();
+        publicKey = (RSAPublicKey) keyPair.getPublic();
 
         String base64Key = Base64.getEncoder().encodeToString(privateKey.getEncoded());
         validPemPrivateKey = "-----BEGIN PRIVATE KEY-----\n" + base64Key + "\n-----END PRIVATE KEY-----";
@@ -41,7 +45,9 @@ class GithubJwtServiceTest {
 
     @Test
     void testGenerateAppJwt_Success() {
+        Instant before = Instant.now();
         String jwtToken = githubJwtService.generateAppJwt();
+        Instant after = Instant.now();
 
         assertThat(jwtToken).isNotNull().isNotBlank();
         
@@ -57,11 +63,46 @@ class GithubJwtServiceTest {
         Instant iat = decodedJWT.getIssuedAtAsInstant();
         Instant exp = decodedJWT.getExpiresAtAsInstant();
 
+        // iat must be backdated by 60s and not in the future
+        assertThat(iat).isBeforeOrEqualTo(before);
         assertThat(iat).isBefore(exp);
-        
-        // Expiration duration should be approx 660s (from now-60s to now+600s)
+        assertThat(exp).isAfter(after);
+
+        // Expiration duration should be exactly 540s (from now-60s to now+480s)
         long durationSeconds = exp.getEpochSecond() - iat.getEpochSecond();
-        assertThat(durationSeconds).isEqualTo(660L);
+        assertThat(durationSeconds).isEqualTo(540L);
+        // Must not exceed GitHub's 600-second maximum
+        assertThat(durationSeconds).isLessThanOrEqualTo(600L);
+
+        // Verify RS256 signature validity using corresponding public key
+        JWT.require(Algorithm.RSA256(publicKey, null))
+                .withIssuer("123456")
+                .build()
+                .verify(jwtToken);
+    }
+
+    @Test
+    void testGenerateAppJwt_ExpirationWithinGithubLimit() {
+        String jwtToken = githubJwtService.generateAppJwt();
+        DecodedJWT decodedJWT = JWT.decode(jwtToken);
+
+        Instant iat = decodedJWT.getIssuedAtAsInstant();
+        Instant exp = decodedJWT.getExpiresAtAsInstant();
+
+        long durationSeconds = exp.getEpochSecond() - iat.getEpochSecond();
+        assertThat(durationSeconds).isPositive();
+        assertThat(durationSeconds).isLessThanOrEqualTo(600L);
+    }
+
+    @Test
+    void testGenerateAppJwt_IssuedAtBackdated() {
+        Instant now = Instant.now();
+        String jwtToken = githubJwtService.generateAppJwt();
+        DecodedJWT decodedJWT = JWT.decode(jwtToken);
+
+        Instant iat = decodedJWT.getIssuedAtAsInstant();
+        // iat should be roughly 60 seconds before now (allow 5 seconds clock slack)
+        assertThat(iat.getEpochSecond()).isBetween(now.getEpochSecond() - 65, now.getEpochSecond() - 55);
     }
 
     @Test

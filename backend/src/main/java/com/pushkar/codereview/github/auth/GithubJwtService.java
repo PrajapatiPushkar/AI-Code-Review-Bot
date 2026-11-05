@@ -45,7 +45,7 @@ public class GithubJwtService {
 
         Instant now = Instant.now();
         Instant issuedAt = now.minusSeconds(60); // 60s in the past to guarantee iat is never in the future on GitHub servers
-        Instant expiresAt = now.plusSeconds(600); // 10 minutes from now (660s total from issuedAt)
+        Instant expiresAt = now.plusSeconds(480); // 8 minutes from now (540s total from issuedAt, <= 600s GitHub limit)
 
         String jwt = JWT.create()
                 .withIssuer(appId)
